@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.yoodun.workos-martial-connector</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/majorchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3</string>
+    <string>/Users/majorchen/Documents/Yoodun-AI-Work-OS/work-os-martial-v0.1/app/martial_connector.py</string>
+    <string>--config</string>
+    <string>/Users/majorchen/Documents/Codex/2026-09-23/ad/work/v01-deploy/connector.json</string>
+  </array>
+  <key>EnvironmentVariables</key><dict><key>PYTHONDONTWRITEBYTECODE</key><string>1</string></dict>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/Users/majorchen/Documents/Codex/2026-09-23/ad/work/martial-deploy/connector.err.log</string>
+  <key>StandardOutPath</key><string>/Users/majorchen/Documents/Codex/2026-09-23/ad/work/martial-deploy/connector.log</string>
+  <key>WorkingDirectory</key><string>/Users/majorchen/Documents/Yoodun-AI-Work-OS/work-os-martial-v0.1/app</string>
+</dict></plist>

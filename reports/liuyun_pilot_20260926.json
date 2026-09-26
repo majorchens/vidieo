@@ -1,0 +1,136 @@
+{
+  "schema": "MartialArtsLessonPilot/v1",
+  "project_id": "wuxiang",
+  "art_id": "flowing_cloud",
+  "lesson_id": "lesson_mv_flowing_cloud_01",
+  "move_id": "mv_flowing_cloud_01",
+  "mode": "historical_media_ingest_and_dependency_test",
+  "formal_approval": false,
+  "status": "motion_waiting",
+  "checks": {
+    "facts": true,
+    "teacher": false,
+    "shot_plan": false,
+    "motion_source": false,
+    "motion_mapping": false,
+    "motion_review": false,
+    "background": false,
+    "scene": true,
+    "teacher_model": false,
+    "instruction_script": true,
+    "instruction_voice": false,
+    "narrative_voice": false,
+    "bgm": false,
+    "sfx": false,
+    "pilot_video": true,
+    "pilot_motion_ref": true,
+    "pilot_audio": true,
+    "pilot_subtitle": true,
+    "video": false,
+    "audiovisual_review": false
+  },
+  "missing_required": [
+    {
+      "key": "teacher",
+      "owner": "美术"
+    },
+    {
+      "key": "shot_plan",
+      "owner": "AI Production OS"
+    },
+    {
+      "key": "motion_source",
+      "owner": "武术 / 运营"
+    },
+    {
+      "key": "motion_mapping",
+      "owner": "AI Production OS"
+    },
+    {
+      "key": "motion_review",
+      "owner": "武术 / 运营"
+    },
+    {
+      "key": "background",
+      "owner": "美术"
+    },
+    {
+      "key": "instruction_voice",
+      "owner": "AI Production OS"
+    },
+    {
+      "key": "video",
+      "owner": "AI Production OS"
+    },
+    {
+      "key": "audiovisual_review",
+      "owner": "最终人工验收"
+    }
+  ],
+  "ready_work": [
+    "teacher",
+    "shot_plan",
+    "motion_source",
+    "background",
+    "teacher_model",
+    "instruction_voice",
+    "narrative_voice",
+    "bgm",
+    "sfx"
+  ],
+  "approval_block": "不能批准；缺少：数字老师、教学镜头设计、真人标准动作、数字老师动作、动作准确性验收、教学背景、老师教学语音、教学视频、成片视听验收",
+  "sources": {
+    "human_source": {
+      "sha256": "c1032d274cdb1e69565f29c44bbd71bf6a3f9bddb2b352c028653f04d86f43a6",
+      "bytes": 2160864,
+      "technical_video": {
+        "duration": 19.767,
+        "width": 720,
+        "height": 1280,
+        "fps": null,
+        "rotation_degrees": 0,
+        "frame_orientation": "竖屏"
+      }
+    },
+    "pilot_motion_ref": {
+      "sha256": "ee8365a0e02033a0ec0ed99594d7d1f41ec2da871d21a451f82703614e6b70bd",
+      "bytes": 3918623,
+      "technical_video": {
+        "duration": 20.0,
+        "width": 480,
+        "height": 854,
+        "fps": null,
+        "rotation_degrees": 0,
+        "frame_orientation": "竖屏"
+      }
+    },
+    "scene": {
+      "sha256": "3e216c376b9854a972463645e8fb65e7560d51ea6a9d11831dba3be67e677bc9",
+      "bytes": 2217371,
+      "technical_video": null
+    },
+    "pilot_audio": {
+      "sha256": "1c36b3f21b18ff7a85071a1c67fe68c10ea0bf3aa1affa52902b2402efc20f09",
+      "bytes": 2880044,
+      "technical_video": null
+    },
+    "pilot_video": {
+      "sha256": "fc6546bde7e2aa512f1d4672152a0b91bd5ba257b22c0ff9ecbe52c8628a2b69",
+      "bytes": 2428460,
+      "technical_video": {
+        "duration": 20.0,
+        "width": 480,
+        "height": 854,
+        "fps": null,
+        "rotation_degrees": 0,
+        "frame_orientation": "竖屏"
+      }
+    },
+    "pilot_subtitle": {
+      "sha256": "5889885a873bb8a76125d75d8ec1293318e7608c42080aa0efeb6b1da0110665",
+      "bytes": 463,
+      "technical_video": null
+    }
+  },
+  "quality_note": "历史 R2 有掌位与朝向问题；只验证文件、技术解析、资产归集和发布拦截。未做当前版本动作或完整视听人工验收。"
+}

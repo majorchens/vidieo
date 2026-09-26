@@ -1,0 +1,597 @@
+{
+  "schema_version": 1,
+  "source_root": "/Users/majorchen/Desktop/武术视频/武术角色形象",
+  "audit_generated_at": "2026-09-23T14:23:09.051001+00:00",
+  "images": [
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/1.人物完整效果图.png",
+      "master_id": "cryn",
+      "role": "full_body_hero",
+      "format": "PNG",
+      "width": 1289,
+      "height": 2177,
+      "size_bytes": 1139714,
+      "sha256": "64594028d9db7dfbdbb6eded82ab1781a8ef82ed123c963aaafae62e96d6e260"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/2.侧面.png",
+      "master_id": "cryn",
+      "role": "side_view",
+      "format": "PNG",
+      "width": 1459,
+      "height": 2095,
+      "size_bytes": 1424672,
+      "sha256": "6bc1ebd5510a8fe3ab7c5250bf5527643bd88c0bc9272f315ec8e0d17659be9f"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/2.正面.png",
+      "master_id": "cryn",
+      "role": "front_view",
+      "format": "PNG",
+      "width": 1289,
+      "height": 2177,
+      "size_bytes": 1139714,
+      "sha256": "64594028d9db7dfbdbb6eded82ab1781a8ef82ed123c963aaafae62e96d6e260"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/2.背面.png",
+      "master_id": "cryn",
+      "role": "back_view",
+      "format": "PNG",
+      "width": 1285,
+      "height": 2086,
+      "size_bytes": 1095454,
+      "sha256": "fb361438ebc5b787fa492a575f84648318fc9f70066add77061673719149fe81"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/3.五官.png",
+      "master_id": "cryn",
+      "role": "face_hair_detail",
+      "format": "PNG",
+      "width": 310,
+      "height": 259,
+      "size_bytes": 122972,
+      "sha256": "ae72e45049b97228fb95968f9722e6a8a4f24e817c1a0b15e7bbd2d4dea2c8ee"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/3.发型.png",
+      "master_id": "cryn",
+      "role": "face_hair_detail",
+      "format": "PNG",
+      "width": 272,
+      "height": 200,
+      "size_bytes": 78551,
+      "sha256": "505161164cf5232c55965b12c735ae92d558048cf353b69dc5c56053465db19f"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/3.头部.png",
+      "master_id": "cryn",
+      "role": "head_detail",
+      "format": "PNG",
+      "width": 376,
+      "height": 610,
+      "size_bytes": 280735,
+      "sha256": "e9d8bc126f41cec7ce1ffd5a45eb8a2bb45e484c326c85f4fac5219bff7e723a"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/3.服饰-上衣.png",
+      "master_id": "cryn",
+      "role": "costume_detail",
+      "format": "PNG",
+      "width": 987,
+      "height": 704,
+      "size_bytes": 332557,
+      "sha256": "88dfc76fd47136d6c42f3c924894a3863d200f21a7712e7f7efdd22c3f739175"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/3.服饰-下装.png",
+      "master_id": "cryn",
+      "role": "costume_detail",
+      "format": "PNG",
+      "width": 761,
+      "height": 1010,
+      "size_bytes": 355552,
+      "sha256": "c54ba30851cb3e362783a752dcefadb078cd4c8c7b5c500d417484b4909d32f6"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/3.羽毛手掌.png",
+      "master_id": "cryn",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 1127,
+      "height": 789,
+      "size_bytes": 321834,
+      "sha256": "b57ec80d12e51f2c889847a9589d6252d4104f66621446d717b4def103c0aefe"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/3.脚掌.png",
+      "master_id": "cryn",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 611,
+      "height": 213,
+      "size_bytes": 84238,
+      "sha256": "cfb93685bc406e323e46e44ace6855c8cb9a457fc1d733553079fcd42c8cedb5"
+    },
+    {
+      "relative_path": "角色版权图/八卦掌鹤老师/表情设定.png",
+      "master_id": "cryn",
+      "role": "expression_sheet",
+      "format": "PNG",
+      "width": 2021,
+      "height": 1410,
+      "size_bytes": 2562166,
+      "sha256": "a715644928cf72e072c9d52a36af6470235e42007a7778a5726dbc2277089f2c"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/1.人物完整效果图.png",
+      "master_id": "bara",
+      "role": "full_body_hero",
+      "format": "PNG",
+      "width": 1056,
+      "height": 1440,
+      "size_bytes": 1237518,
+      "sha256": "ef3d8c6e4daf7ee5a865a5abeac99969524eea47ec430e8ce6a03c17ea00f0d4"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/2.侧面.png",
+      "master_id": "bara",
+      "role": "side_view",
+      "format": "PNG",
+      "width": 1008,
+      "height": 1440,
+      "size_bytes": 1656222,
+      "sha256": "aff0df6832e9916e2e70be32787e861499b622445388bef0f38f5b271b760512"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/2.正面.png",
+      "master_id": "bara",
+      "role": "front_view",
+      "format": "PNG",
+      "width": 1056,
+      "height": 1440,
+      "size_bytes": 1237518,
+      "sha256": "ef3d8c6e4daf7ee5a865a5abeac99969524eea47ec430e8ce6a03c17ea00f0d4"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/2.背面.png",
+      "master_id": "bara",
+      "role": "back_view",
+      "format": "PNG",
+      "width": 1092,
+      "height": 1440,
+      "size_bytes": 1656586,
+      "sha256": "baf2e545647f2b1147526f5ea0439b53d54c9b9a15df96bb53b0829490e361bc"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/3. 头部.png",
+      "master_id": "bara",
+      "role": "head_detail",
+      "format": "PNG",
+      "width": 622,
+      "height": 761,
+      "size_bytes": 562474,
+      "sha256": "3bc104b9afbd44966ba7c6802614479930203236b27011822a2e29efd5b4f33c"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/3.五官.png",
+      "master_id": "bara",
+      "role": "face_hair_detail",
+      "format": "PNG",
+      "width": 610,
+      "height": 559,
+      "size_bytes": 397986,
+      "sha256": "d3d23d09a812d1f4a4c15610a5de2fc7e62ab82010b83a7a82020c9ff3313532"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/3.服装.png",
+      "master_id": "bara",
+      "role": "costume_detail",
+      "format": "PNG",
+      "width": 951,
+      "height": 1131,
+      "size_bytes": 838945,
+      "sha256": "91b2564c83b9212ec74c889725b752a73b9ea098a323288d8bbe69c190ded630"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/3.细节-发型.png",
+      "master_id": "bara",
+      "role": "face_hair_detail",
+      "format": "PNG",
+      "width": 416,
+      "height": 211,
+      "size_bytes": 101870,
+      "sha256": "5a76bc5619a8ecc5bc6120c2b74530e62bff801b36782574a7ba198b8e02a9be"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/3.细节-手部.png",
+      "master_id": "bara",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 255,
+      "height": 287,
+      "size_bytes": 89715,
+      "sha256": "f6f9b4376e5806918b87c7e3c63f7c9dfa43f5f32fae9dfe71502ce1115af674"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/3.细节-鞋子.png",
+      "master_id": "bara",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 548,
+      "height": 270,
+      "size_bytes": 119911,
+      "sha256": "f28ee8572a9f5d3e9722601f28b1af115153c380e110687f3e9ff737cbc437de"
+    },
+    {
+      "relative_path": "角色版权图/太极拳水豚老师/表情设定.png",
+      "master_id": "bara",
+      "role": "expression_sheet",
+      "format": "PNG",
+      "width": 2283,
+      "height": 1381,
+      "size_bytes": 4917267,
+      "sha256": "0553434a0e2a48233244efe5be4eda098312d3d1018df0eac11b2a3e767f1f11"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/1.人物完整效果图.png",
+      "master_id": "boor",
+      "role": "full_body_hero",
+      "format": "PNG",
+      "width": 1803,
+      "height": 1824,
+      "size_bytes": 2299042,
+      "sha256": "f990f4dd8029764214ddda498922a2e2ddbac882479c477c9bcb8f32fde91e32"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/2.侧面.png",
+      "master_id": "boor",
+      "role": "side_view",
+      "format": "PNG",
+      "width": 1803,
+      "height": 1824,
+      "size_bytes": 1414842,
+      "sha256": "cb4967972bcfcbafd5639d17d5141bc37596f986db0033595096cb90c0c1e6ff"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/2.正面.png",
+      "master_id": "boor",
+      "role": "front_view",
+      "format": "PNG",
+      "width": 1803,
+      "height": 1824,
+      "size_bytes": 1987900,
+      "sha256": "1ab695430270b4dc14b64538d242e40d05d03b465c3f869a7dce69543fbe2ae6"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/2.背面.png",
+      "master_id": "boor",
+      "role": "back_view",
+      "format": "PNG",
+      "width": 1803,
+      "height": 1824,
+      "size_bytes": 1845877,
+      "sha256": "dc4bb8e83c036d823d7d04aba7d7f315e6543a5a876fb2110da0183e0ac99c52"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/3.五官.png",
+      "master_id": "boor",
+      "role": "face_hair_detail",
+      "format": "PNG",
+      "width": 884,
+      "height": 869,
+      "size_bytes": 1167054,
+      "sha256": "75653ea49fee9b3822bc56162390105a2c90d0ecdb0c73379e561a74df113997"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/3.头像.png",
+      "master_id": "boor",
+      "role": "head_detail",
+      "format": "PNG",
+      "width": 1803,
+      "height": 1824,
+      "size_bytes": 4790124,
+      "sha256": "844adf0d5ef68856003790a41fba3b18b428a128164a5db3088b139f06202ec1"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/3.手部.png",
+      "master_id": "boor",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 227,
+      "height": 392,
+      "size_bytes": 119976,
+      "sha256": "48d5e3a1dc04e02fe27d7d59ed173b32643b37efb688859e397c1c0bee0228d2"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/3.服装-上衣.png",
+      "master_id": "boor",
+      "role": "costume_detail",
+      "format": "PNG",
+      "width": 590,
+      "height": 574,
+      "size_bytes": 572040,
+      "sha256": "7d5d1bcbe890a54810f0393ce5e0ebb2a6915166a9bc337d523d0d25440cbf68"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/3.服装-下装.png",
+      "master_id": "boor",
+      "role": "costume_detail",
+      "format": "PNG",
+      "width": 664,
+      "height": 840,
+      "size_bytes": 788883,
+      "sha256": "1c4b46e801caf35a70666d6e0e681f01d66793d1d8f123651e7742e60619ce46"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/3.服装-手腕护具+腰带.png",
+      "master_id": "boor",
+      "role": "costume_detail",
+      "format": "PNG",
+      "width": 1022,
+      "height": 574,
+      "size_bytes": 884082,
+      "sha256": "8d8947baf56cb694ba7bc60fb558c8de42f5972276c32a6efb77236ee8c351f3"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/3.脚掌.png",
+      "master_id": "boor",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 762,
+      "height": 230,
+      "size_bytes": 158679,
+      "sha256": "5d53e3bc77e21fea0d7f93579f5f30ca6c6ef7a9096010b957abe337c04caa19"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/3.饰品-金丝眼镜.png",
+      "master_id": "boor",
+      "role": "accessory_detail",
+      "format": "PNG",
+      "width": 539,
+      "height": 322,
+      "size_bytes": 270353,
+      "sha256": "9e0f5dae3b1b00dd63dfa15e892af178991ee26c61f45d05fc833efff9379ee3"
+    },
+    {
+      "relative_path": "角色版权图/开山拳熊老师/表情包设定.png",
+      "master_id": "boor",
+      "role": "expression_sheet",
+      "format": "PNG",
+      "width": 2283,
+      "height": 1381,
+      "size_bytes": 3931908,
+      "sha256": "ed3c885793e493312d1da1b3d4074cd160a47e224bc4c30ed10958fbe012988d"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/1.人物完整效果图.png",
+      "master_id": "pongda",
+      "role": "full_body_hero",
+      "format": "PNG",
+      "width": 927,
+      "height": 1440,
+      "size_bytes": 1447469,
+      "sha256": "a65812fa518300ad41cfd99c5853d855ae0cc2bda7cdf89a71b935b1614afd11"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/2.侧面.png",
+      "master_id": "pongda",
+      "role": "side_view",
+      "format": "PNG",
+      "width": 956,
+      "height": 1440,
+      "size_bytes": 1183278,
+      "sha256": "a22a754106bc7e7f05af7cc5a672e1ff395b46ce125b3111856f00345ecfa359"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/2.正面.png",
+      "master_id": "pongda",
+      "role": "front_view",
+      "format": "PNG",
+      "width": 927,
+      "height": 1440,
+      "size_bytes": 1447469,
+      "sha256": "a65812fa518300ad41cfd99c5853d855ae0cc2bda7cdf89a71b935b1614afd11"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/2.背面.png",
+      "master_id": "pongda",
+      "role": "back_view",
+      "format": "PNG",
+      "width": 916,
+      "height": 1440,
+      "size_bytes": 1404025,
+      "sha256": "35dc8bb458adcb81a306b52d269b6d2926b96adc70b8e08a4872780bff08d34f"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/3.五官.png",
+      "master_id": "pongda",
+      "role": "face_hair_detail",
+      "format": "PNG",
+      "width": 703,
+      "height": 537,
+      "size_bytes": 478617,
+      "sha256": "1efc2804b66064a36665d36218dcfd4efe545f69cbf1d17d14326362f1013c01"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/3.头部.png",
+      "master_id": "pongda",
+      "role": "head_detail",
+      "format": "PNG",
+      "width": 791,
+      "height": 695,
+      "size_bytes": 451284,
+      "sha256": "60c716d69db1f082e1e3a736cf745b431b63e5b3fc4b6806887f4bf75d752f1c"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/3.服装-川剧云肩披风、腰裙.png",
+      "master_id": "pongda",
+      "role": "costume_detail",
+      "format": "PNG",
+      "width": 836,
+      "height": 593,
+      "size_bytes": 701798,
+      "sha256": "1420d95a9bd593e2c95c25f0b792bdeb332d46a1dfd220120ca462685a8f498f"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/3.饰品-川剧帽子.png",
+      "master_id": "pongda",
+      "role": "accessory_detail",
+      "format": "PNG",
+      "width": 379,
+      "height": 306,
+      "size_bytes": 81459,
+      "sha256": "04691c69a9dbbab3f1f59315d6e61a835a9cb3a34fe7dea9e3d0500b2c9a4ffb"
+    },
+    {
+      "relative_path": "角色版权图/新手老师胖达/表情设定.png",
+      "master_id": "pongda",
+      "role": "expression_sheet",
+      "format": "PNG",
+      "width": 2283,
+      "height": 1381,
+      "size_bytes": 3383297,
+      "sha256": "2ccc82e0cde0900ef8583441534c291f50030cdcd0f9c13289064eab9be225e6"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/1.人物完整效果图.png",
+      "master_id": "wongkey",
+      "role": "full_body_hero",
+      "format": "PNG",
+      "width": 1080,
+      "height": 1820,
+      "size_bytes": 1366606,
+      "sha256": "3a79e37bdf8ad5e69b1b98d0169b5b1da5fa8420a9e8c842086c2fd7ea7da9b6"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/2.侧面.png",
+      "master_id": "wongkey",
+      "role": "side_view",
+      "format": "PNG",
+      "width": 1080,
+      "height": 1820,
+      "size_bytes": 1129873,
+      "sha256": "225fe74b65009f3326b1910a4409d9bd0e73b0147186422d4b8d470856e3cb02"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/2.正面.png",
+      "master_id": "wongkey",
+      "role": "front_view",
+      "format": "PNG",
+      "width": 1080,
+      "height": 1820,
+      "size_bytes": 1366606,
+      "sha256": "3a79e37bdf8ad5e69b1b98d0169b5b1da5fa8420a9e8c842086c2fd7ea7da9b6"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/2.背面.png",
+      "master_id": "wongkey",
+      "role": "back_view",
+      "format": "PNG",
+      "width": 1080,
+      "height": 1816,
+      "size_bytes": 1481372,
+      "sha256": "15b847bc8f07d36ed0102d02a99f12ec9772c2c7341781422b1d2dc0a72ba061"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.服装.png",
+      "master_id": "wongkey",
+      "role": "costume_detail",
+      "format": "PNG",
+      "width": 792,
+      "height": 1048,
+      "size_bytes": 786043,
+      "sha256": "edb824d6f734e66ac87bb4f9f356182164a30c4cf90f2ebabc3abba77284b9f7"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.细节-五官.png",
+      "master_id": "wongkey",
+      "role": "face_hair_detail",
+      "format": "PNG",
+      "width": 440,
+      "height": 324,
+      "size_bytes": 168067,
+      "sha256": "e643e0f9e7eb27b073af15c4a5f99716bebe056b0641b9cb3d6a08a103781de6"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.细节-头部.png",
+      "master_id": "wongkey",
+      "role": "head_detail",
+      "format": "PNG",
+      "width": 587,
+      "height": 551,
+      "size_bytes": 237717,
+      "sha256": "fed16459d77503977f15c7626c980956efaaf0161d8568590c5cea85cfcb9d88"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.细节-尾巴.png",
+      "master_id": "wongkey",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 472,
+      "height": 826,
+      "size_bytes": 246374,
+      "sha256": "2de3ed69dcc2f9209e66fd211c81441e867ef81db38305f81decd65f8a1474f9"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.细节-手部.png",
+      "master_id": "wongkey",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 222,
+      "height": 280,
+      "size_bytes": 94169,
+      "sha256": "d6ae4f381631b14799650d10476b6d441d18362ead9c6853639174378556c33f"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.细节-脚掌.png",
+      "master_id": "wongkey",
+      "role": "anatomy_detail",
+      "format": "PNG",
+      "width": 677,
+      "height": 207,
+      "size_bytes": 115629,
+      "sha256": "b4a68892bc1c2dba538f192da2eed5872c38e522dfee7227d7d418de669cca80"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.饰品-酒壶.png",
+      "master_id": "wongkey",
+      "role": "accessory_detail",
+      "format": "PNG",
+      "width": 602,
+      "height": 706,
+      "size_bytes": 580770,
+      "sha256": "d70dc63154a083725707b4affc666f397587c4f1b9fa0a0c772bf5f1d291b748"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.饰品-酒壶细节.png",
+      "master_id": "wongkey",
+      "role": "accessory_detail",
+      "format": "PNG",
+      "width": 2048,
+      "height": 2048,
+      "size_bytes": 4009250,
+      "sha256": "dd366fab934947bff18d94578ee76de82631b34d08dfc1228da37fe6056902a9"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/3.饰品-金耳环.png",
+      "master_id": "wongkey",
+      "role": "accessory_detail",
+      "format": "PNG",
+      "width": 172,
+      "height": 227,
+      "size_bytes": 49910,
+      "sha256": "5e49ff243b4b9a20adb2776c93b3fe29f44c9384e675325ae89b56e1678b7b75"
+    },
+    {
+      "relative_path": "角色版权图/流云掌猴老师/表情设定.png",
+      "master_id": "wongkey",
+      "role": "expression_sheet",
+      "format": "PNG",
+      "width": 4296,
+      "height": 2116,
+      "size_bytes": 8904566,
+      "sha256": "101e4d95733dbb0f28ad73d4c93c309d10c03bed17fc58d0c7ae2e3a7dc2cf5c"
+    }
+  ]
+}

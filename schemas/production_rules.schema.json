@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reviewed Creative Lab rules eligible for lesson production",
+  "type": "object",
+  "required": ["schema", "rules"],
+  "properties": {
+    "schema": {"const": "MartialProductionRules/v1"},
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "status", "scope", "learning_review", "reviewer", "rule", "conditions", "counterexamples", "evidence_sha256"],
+        "properties": {
+          "id": {"type": "string"}, "version": {"type": "integer", "minimum": 1},
+          "status": {"enum": ["candidate", "active", "superseded"]},
+          "scope": {"type": "string"}, "learning_review": {"type": "string"},
+          "reviewer": {"type": "string"}, "rule": {"type": "string"},
+          "conditions": {"type": "string"}, "counterexamples": {"type": "string"},
+          "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

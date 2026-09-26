@@ -1,0 +1,24 @@
+[Unit]
+Description=Yoodun Work OS V0.2
+After=network.target
+
+[Service]
+Type=simple
+User=yoodun-os
+Group=yoodun-os
+WorkingDirectory=/opt/yoodun-work-os-v0.2/app
+Environment=YOODUN_DATA_DIR=/var/lib/yoodun-work-os
+Environment=YOODUN_BASE_PATH=/work-os
+Environment=YOODUN_CONNECTOR_MODE=remote
+EnvironmentFile=/etc/yoodun-work-os.env
+ExecStart=/usr/bin/python3 /opt/yoodun-work-os-v0.2/app/server.py --host 127.0.0.1 --port 18766
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/yoodun-work-os
+
+[Install]
+WantedBy=multi-user.target

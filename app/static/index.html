@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>柚盾工作台</title>
+  <link rel="stylesheet" href="styles.css?v=20260924-v03">
+  <link rel="stylesheet" href="martial.css?v=20260926-lesson-pipeline-2">
+  <link rel="stylesheet" href="ai_studio.css?v=20260924-v03">
+  <script defer src="app.js?v=20260926-lesson-pipeline-2"></script>
+  <script defer src="martial.js?v=20260926-lesson-pipeline-2"></script>
+  <script defer src="ai_studio.js?v=20260924-v03"></script>
+</head>
+<body>
+  <div id="login" class="login-wrap hidden">
+    <div class="login-card">
+      <div class="brand-mark">柚</div>
+      <p class="eyebrow">YOODUN WORK OS · V0.3</p>
+      <h1>把今天的工作<br>清楚地做完。</h1>
+      <p class="muted">登录后查看任务、素材、步骤和返修意见。</p>
+      <form id="login-form">
+        <label>账号<input id="username" name="username" autocomplete="username" required></label>
+        <label>密码<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">进入工作台</button>
+      </form>
+      <p id="login-error" class="error"></p>
+    </div>
+    <aside class="login-aside"><span>今天的任务</span><strong>有素材，有步骤，有清楚的完成标准。</strong><p>AI 负责准备，员工负责执行，专业人员负责验收。</p></aside>
+  </div>
+
+  <div id="shell" class="shell hidden">
+    <aside class="sidebar">
+      <div class="logo"><span class="brand-mark">柚</span><div><strong>柚盾工作台</strong><small>Yoodun Work OS</small></div></div>
+      <nav id="nav"></nav>
+      <div class="sidebar-bottom"><div class="identity"><span id="avatar"></span><div><strong id="display-name"></strong><small id="role-name"></small></div></div><button id="logout" class="text-button">退出登录</button></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div><p class="eyebrow" id="breadcrumb">WORKSPACE</p><h1 id="page-title">今天</h1></div><div id="top-actions"></div></header>
+      <div id="notice" class="notice hidden"></div>
+      <section id="content"></section>
+    </main>
+  </div>
+</body>
+</html>

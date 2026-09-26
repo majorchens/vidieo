@@ -1,0 +1,44 @@
+[
+  {
+    "id": "film-director",
+    "name": "film-director",
+    "canonical_source": "/Users/majorchen/Documents/ChatGPT/武术短剧拍摄/.codex/agents/film-director.toml",
+    "sha256": "1e7df95f69d90a67fb5c3327a8f0390b57c862f8d2383e0e0fc31327e992d08f",
+    "version": "1.0"
+  },
+  {
+    "id": "film-writer",
+    "name": "film-writer",
+    "canonical_source": "/Users/majorchen/Documents/ChatGPT/武术短剧拍摄/.codex/agents/film-writer.toml",
+    "sha256": "d8b52287de1b50eb00a4e5e2e2b86ce119f8cb7dca6f0866ae5a4b2262b75de8",
+    "version": "1.0"
+  },
+  {
+    "id": "film-storyboard",
+    "name": "film-storyboard",
+    "canonical_source": "/Users/majorchen/Documents/ChatGPT/武术短剧拍摄/.codex/agents/film-storyboard.toml",
+    "sha256": "676fe994778c32cc5a117f97a8d2422e6fa9e0ca01604189e3cc4b0214ff6438",
+    "version": "1.0"
+  },
+  {
+    "id": "film-animation",
+    "name": "film-animation",
+    "canonical_source": "/Users/majorchen/Documents/ChatGPT/武术短剧拍摄/.codex/agents/film-animation.toml",
+    "sha256": "8bbc7414cdf40e17b63c824696dbc20249608920045cdf1b801256c6a77035df",
+    "version": "1.0"
+  },
+  {
+    "id": "film-sound",
+    "name": "film-sound",
+    "canonical_source": "/Users/majorchen/Documents/ChatGPT/武术短剧拍摄/.codex/agents/film-sound.toml",
+    "sha256": "9d7dd9e4664e015d48218edd65116869c991ec91f2862fc80b3f6c85df821d34",
+    "version": "1.0"
+  },
+  {
+    "id": "film-editor",
+    "name": "film-editor",
+    "canonical_source": "/Users/majorchen/Documents/ChatGPT/武术短剧拍摄/.codex/agents/film-editor.toml",
+    "sha256": "82184948c91a139b919dbc8fe34a83163896b2d2007c3d6c55053da38dcb504a",
+    "version": "1.0"
+  }
+]

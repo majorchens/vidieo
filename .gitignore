@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+/data/
+/seed_assets/
+/work/
+*.sqlite3
+*.db
+*.mp4
+*.mov
+*.wav
+*.mp3
+!tests/fixtures/wuxiang/cryn-bagua-part01.mp4
