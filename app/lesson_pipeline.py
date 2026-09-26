@@ -160,6 +160,11 @@ def bind_asset(user: dict, move_id: str, data: dict) -> dict:
         row = c.execute("SELECT * FROM asset_registry WHERE asset_id=?", (asset_id,)).fetchone()
         if not row or row["project_id"] != "wuxiang" or row["status"] != "active" or row["type"] not in ROLES[role]:
             raise ValueError("素材不属于当前功法项目、类型不符或尚未生效")
+        refs=(store.parse(row["metadata"],{}) or {}).get("source_refs") or []
+        if (any(str(ref).startswith("creative_lab:") for ref in refs) and
+            not any(str(ref).startswith("production_review:") for ref in refs) and
+            not role.startswith("pilot_")):
+            raise ValueError("Creative Lab 素材须完成 Learning Review 后才能进入正式教学包")
         if role in {"scene", "background"} and row["type"] == "image" and file.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
             raise ValueError("背景需要可读取的图片")
         if role == "teacher_model" and row["type"] == "character":

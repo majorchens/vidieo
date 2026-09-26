@@ -5,6 +5,7 @@ asset or reads provider credentials. Original systems keep their authority.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -94,7 +95,9 @@ def initialize() -> None:
 def _access_scope(item: dict) -> str:
     source=str(item["source_system"])
     meta=item.get("metadata") or {}
-    if source=="work_os":return "work_os_project"
+    if source=="work_os":
+        refs=meta.get("source_refs") or []
+        return "work_os_creative_lab" if any(str(ref).startswith("creative_lab:") for ref in refs) else "work_os_project"
     if source=="work_os_ai_studio":return "work_os_private:"+str(meta.get("owner_id") or item.get("creator") or "")
     if source.startswith("legacy_ai"):
         if meta.get("visibility")=="team":return "legacy_team"
@@ -140,8 +143,9 @@ def _register(c: sqlite3.Connection, item: dict) -> tuple[str, str]:
         return existing[0], "existing"
     # A digest is only a deduplication key within the same business context.
     # This avoids merging private output with a team asset from another project.
+    creative_source=any(str(ref).startswith("creative_lab:") for ref in (item.get("metadata") or {}).get("source_refs",[]))
     duplicate = c.execute("SELECT asset_id,subtype,metadata FROM asset_registry WHERE sha256=? AND project_id IS ? AND type=? AND access_scope=? LIMIT 1",
-                          (sha, item.get("project_id"), item["type"],scope)).fetchone() if sha else None
+                          (sha, item.get("project_id"), item["type"],scope)).fetchone() if sha and not creative_source else None
     if duplicate:
         asset_id = duplicate["asset_id"]
         if item.get("subtype") and not duplicate["subtype"]:
@@ -489,6 +493,70 @@ def detail(user: dict, asset_id: str) -> dict:
         if not row:raise KeyError(asset_id)
         if not _visible(c,dict(row),user):raise PermissionError("没有此素材的访问权限")
         return {"asset":_public(c,dict(row),user,True)}
+
+
+def import_creative_lab(user: dict, data: dict) -> dict:
+    """Copy one selected experiment asset into the shared company store."""
+    project_id=str(data.get("project_id") or "")
+    experiment_id=str(data.get("experiment_id") or "")
+    source_ref=str(data.get("source_ref") or "")
+    if project_id not in {"wuxiang","diaojianghu"} or not re.fullmatch(r"[A-Za-z0-9._-]{2,80}",experiment_id):
+        raise ValueError("实验项目或编号无效")
+    if not source_ref.startswith("Creative Lab/") or len(source_ref)>300 or ".." in Path(source_ref).parts:
+        raise ValueError("请选择 Creative Lab 下的相对素材路径")
+    with store.connect() as c:
+        if not _project_allowed(c,user,project_id):raise PermissionError("没有该项目素材权限")
+    upload=data.get("upload") or {}
+    if not isinstance(upload,dict):raise ValueError("上传素材无效")
+    filename=str(upload.get("name") or "")
+    if Path(filename).suffix.lower() not in {".png",".jpg",".jpeg",".webp",".mp4",".mov",".wav",".mp3"}:
+        raise ValueError("实验素材需要图片、视频或音频文件")
+    try:content=base64.b64decode(upload.get("base64") or "",validate=True)
+    except (ValueError,TypeError):raise ValueError("实验素材数据无效")
+    if not content or len(content)>40_000_000:raise ValueError("实验素材为空或超过 40MB")
+    sha=hashlib.sha256(content).hexdigest()
+    if data.get("expected_sha256") and data["expected_sha256"]!=sha:
+        raise ValueError("实验素材校验和不一致")
+    source_tag=f"creative_lab:{experiment_id}:{source_ref}"
+    with store.connect() as c:
+        existing=next((dict(row) for row in c.execute("SELECT id,source_refs FROM assets WHERE project_id=? AND sha256=? AND status='active'",(project_id,sha))
+                       if source_tag in store.parse(row["source_refs"],[])),None)
+    if existing:
+        source_id=existing["id"]
+    else:
+        saved=store.register_production_asset(project_id,"creative_lab",filename,content,user["id"])
+        source_id=saved["id"]
+        with store.connect() as c:
+            c.execute("UPDATE assets SET source_refs=? WHERE id=?",(store.dumps([source_tag]),source_id))
+            store.audit(c,user["id"],"creative_lab.asset.import",None,
+                        {"project_id":project_id,"experiment_id":experiment_id,"source_ref":source_ref,"asset_id":source_id,"sha256":sha})
+    sync_internal()
+    with store.connect() as c:
+        registry=c.execute("SELECT asset_id FROM asset_registry_sources WHERE source_system='work_os' AND original_id=?",(source_id,)).fetchone()
+    if not registry:raise RuntimeError("实验素材已保存，但资产中心登记失败")
+    return detail(user,registry[0])
+
+
+def promote_creative_lab(user: dict, asset_id: str, data: dict) -> dict:
+    """Manager records the Learning Review before formal lesson binding."""
+    if user["role"] not in {"manager","founder"}:raise PermissionError("实验转正式资产需负责人审查")
+    review_ref=str(data.get("learning_review_ref") or "")
+    notes=str(data.get("notes") or "").strip()
+    if not review_ref.startswith("Creative Lab/") or len(review_ref)>300 or ".." in Path(review_ref).parts or len(notes)<12:
+        raise ValueError("请填写 Learning Review 路径及具体审查依据")
+    with store.connect() as c:
+        row=c.execute("SELECT source_system,original_id FROM asset_registry WHERE asset_id=?",(asset_id,)).fetchone()
+        if not row or row["source_system"]!="work_os":raise ValueError("素材不是公司存储中的实验文件")
+        asset=c.execute("SELECT source_refs FROM assets WHERE id=?",(row["original_id"],)).fetchone()
+        refs=store.parse(asset["source_refs"],[]) if asset else []
+        if not any(str(ref).startswith("creative_lab:") for ref in refs):raise ValueError("素材没有 Creative Lab 来源")
+        marker="production_review:"+review_ref
+        if marker not in refs:
+            c.execute("UPDATE assets SET source_refs=? WHERE id=?",(store.dumps([*refs,marker]),row["original_id"]))
+            store.audit(c,user["id"],"creative_lab.asset.promote",None,
+                        {"asset_id":asset_id,"learning_review_ref":review_ref,"notes":notes})
+    sync_internal()
+    return detail(user,asset_id)
 
 
 def media_path(user: dict, asset_id: str) -> Path:

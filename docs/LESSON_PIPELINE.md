@@ -4,7 +4,9 @@
 
 本实现沿用 Work OS 的功法字典、老师 Character、真人动作参考、视频计划、Runy Seedance 作业、候选、武术 QC、AI Asset Center 与员工权限。`app/lesson_pipeline.py`负责教学包依赖、整式/镜头素材版本、成片人工复核及批准发布。没有替换原视频流程或启动 Creative Lab 批次。WF-01 仍是武学制作工作流；新教学包把 WF-01 已完成的事实与视频结果组合成产品内容。
 
-Creative Lab 的实验素材可先在共享 Asset Center 查找；实验结论须经过 Learning Review、明确适用范围和反例、人工确认后，才写入 Git 中 `app/production_rules.json`，并把对应 Prompt/Workflow 版本绑定到正式教学包。程序只读取 `active` 且具备审查来源、审查人、证据哈希、适用条件和反例的规则，批准 Manifest 锁定实际使用的规则。当前规则登记为空：Batch 001 的通用“结果变化可见”结论仍是导演参考，尚无下一批作品证明其正式跨批生产效果，不等于《流云掌》标准动作已通过验证；Batch 002 不会自动晋级。本仓库不读取或更改正在运行的 Batch 002 状态。
+Creative Lab 的本地实验文件经选择后，用 `scripts/import_creative_lab_asset.py`通过 Work OS 登录上传到同一个云端 Asset Center，记录实验编号、原相对路径和 SHA-256；重复导入同源同哈希文件会复用登记。导入仅产生实验素材，正式教学包拒绝绑定未复核的实验资产。负责人审查 Learning Review 并记录具体依据后可单独批准该资产进入正式制作。实验结论还须明确适用范围和反例、人工确认后，才写入 Git 中 `app/production_rules.json`，并把对应 Prompt/Workflow 版本绑定到正式教学包。程序只读取 `active` 且具备审查来源、审查人、证据哈希、适用条件和反例的规则，批准 Manifest 锁定实际使用的规则。当前规则登记为空：Batch 001 的通用“结果变化可见”结论仍是导演参考，尚无下一批作品证明其正式跨批生产效果，不等于《流云掌》标准动作已通过验证；Batch 002 不会自动晋级。本仓库不读取或更改正在运行的 Batch 002 状态。
+
+例：`python3 scripts/import_creative_lab_asset.py --username <Work OS账号> --project-id wuxiang --experiment-id W01 --source-ref 'Creative Lab/Wushu/W01/sample.jpg' --file '<本地素材路径>'`。脚本交互输入现有密码，不保存密码。负责人已有 Learning Review 结论时，可追加 `--learning-review-ref 'Creative Lab/Batch_001_Learning_Review.md' --review-notes '<实际审查依据>'`；仅导入不会自动批准或生成媒体。
 
 ## 数据与存储
 

@@ -587,6 +587,11 @@ class Handler(BaseHTTPRequestHandler):
                         ai_studio.turn_into_task(user,artifact_id,data) if action=="task" else
                         ai_studio.continue_artifact(user,artifact_id,data))
                 self.send_json(result);return
+            if path=="/api/asset-center/import-creative-lab":
+                self.send_json(asset_center.import_creative_lab(user,data),201);return
+            lab_promote=re.fullmatch(r"/api/asset-center/(uar_[a-f0-9]{16})/promote",path)
+            if lab_promote:
+                self.send_json(asset_center.promote_creative_lab(user,lab_promote.group(1),data));return
             asset_reuse=re.fullmatch(r"/api/asset-center/(uar_[a-f0-9]{16})/reuse",path)
             if asset_reuse:
                 self.send_json(asset_center.reuse(user,asset_reuse.group(1),data));return

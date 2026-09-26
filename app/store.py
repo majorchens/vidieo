@@ -295,7 +295,7 @@ def register_submission_asset(project_id: str, filename: str, contents: bytes, a
 
 def register_production_asset(project_id: str, role: str, filename: str, contents: bytes, actor: str) -> dict:
     """Store a new lesson asset by role; never overwrite a prior version."""
-    if project_id != "wuxiang" or not re.fullmatch(r"[a-z_]{2,40}", role):
+    if project_id not in {"wuxiang", "diaojianghu"} or not re.fullmatch(r"[a-z_]{2,40}", role):
         raise ValueError("生产资产项目或用途无效")
     if not contents or len(contents) > 50_000_000:
         raise ValueError("生产资产为空或超过 50MB")

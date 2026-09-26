@@ -1,6 +1,7 @@
 """Lesson dependency, asset version and human release gates."""
 from __future__ import annotations
 
+import base64
 import sys
 import tempfile
 import unittest
@@ -95,6 +96,27 @@ class LessonPipelineTest(unittest.TestCase):
         found = asset_center.list_assets(self.employee, {"shot_id": shot["shot_id"]})["assets"]
         self.assertIn(asset, [item["asset_id"] for item in found])
         self.assertFalse(result["dependencies"]["checks"]["background"])
+
+    def test_creative_lab_asset_requires_review_before_formal_binding(self):
+        picture=(ROOT / "tests/fixtures/wuxiang/cryn-character.jpg").read_bytes()
+        imported=asset_center.import_creative_lab(self.employee, {
+            "project_id": "wuxiang", "experiment_id": "W01", "source_ref": "Creative Lab/Wushu/W01/sample.jpg",
+            "upload": {"name": "sample.jpg", "base64": base64.b64encode(picture).decode()}})
+        asset_id=imported["asset"]["asset_id"]
+        with self.assertRaisesRegex(ValueError,"Learning Review"):
+            lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"background","asset_id":asset_id})
+        promoted=asset_center.promote_creative_lab(self.manager,asset_id,{
+            "learning_review_ref":"Creative Lab/Batch_001_Learning_Review.md",
+            "notes":"仅将此图片作为候选背景复核，动作准确性仍需另审"})
+        self.assertEqual(promoted["asset"]["asset_id"],asset_id)
+        self.assertTrue(any(ref.startswith("production_review:") for ref in store.parse(self._asset_refs(asset_id),[])))
+        result=lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"background","asset_id":asset_id})
+        self.assertTrue(result["dependencies"]["checks"]["background"])
+
+    def _asset_refs(self, asset_id):
+        with store.connect() as c:
+            row=c.execute("SELECT a.source_refs FROM assets a JOIN asset_registry r ON r.original_id=a.id WHERE r.asset_id=?",(asset_id,)).fetchone()
+            return row[0]
 
 
 if __name__ == "__main__":

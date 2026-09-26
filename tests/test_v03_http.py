@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import http.client
+import base64
 import io
 import json
 import sys
@@ -147,6 +148,23 @@ class V03HttpSmokeTest(unittest.TestCase):
         status, _, error = self.request("POST", f"/api/martial/lessons/{move_id}/approve", {}, self.manager)
         self.assertEqual(status, 400)
         self.assertIn("不能批准", error["error"])
+
+    def test_creative_lab_import_route_and_review_gate(self):
+        picture=(ROOT / "tests/fixtures/wuxiang/cryn-character.jpg").read_bytes()
+        status, _, imported = self.request("POST", "/api/asset-center/import-creative-lab", {
+            "project_id": "wuxiang", "experiment_id": "W01", "source_ref": "Creative Lab/Wushu/W01/sample.jpg",
+            "upload": {"name": "sample.jpg", "base64": base64.b64encode(picture).decode()}}, self.employee)
+        self.assertEqual(status, 201)
+        asset_id=imported["asset"]["asset_id"]
+        status, _, denied = self.request("POST", "/api/martial/lessons/mv_flowing_cloud_01/bind", {
+            "role": "background", "asset_id": asset_id}, self.employee)
+        self.assertEqual(status, 400)
+        self.assertIn("Learning Review", denied["error"])
+        status, _, promoted = self.request("POST", f"/api/asset-center/{asset_id}/promote", {
+            "learning_review_ref": "Creative Lab/Batch_001_Learning_Review.md",
+            "notes": "复核该场景的来源与镜头用途；没有批准标准动作"}, self.manager)
+        self.assertEqual(status, 200)
+        self.assertEqual(promoted["asset"]["asset_id"],asset_id)
 
     def test_multimodal_routes_and_inheritance(self):
         art_path = f"/api/martial/arts/{self.art_id}/multimodal"
