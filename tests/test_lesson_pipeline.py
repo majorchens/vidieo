@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import base64
+import io
 import sys
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,7 +97,7 @@ class LessonPipelineTest(unittest.TestCase):
         self.assertEqual(result["bindings"][0]["shot_id"], shot["shot_id"])
         found = asset_center.list_assets(self.employee, {"shot_id": shot["shot_id"]})["assets"]
         self.assertIn(asset, [item["asset_id"] for item in found])
-        self.assertFalse(result["dependencies"]["checks"]["background"])
+        self.assertTrue(result["dependencies"]["checks"]["background"])
 
     def test_creative_lab_asset_requires_review_before_formal_binding(self):
         picture=(ROOT / "tests/fixtures/wuxiang/cryn-character.jpg").read_bytes()
@@ -117,6 +119,67 @@ class LessonPipelineTest(unittest.TestCase):
         with store.connect() as c:
             row=c.execute("SELECT a.source_refs FROM assets a JOIN asset_registry r ON r.original_id=a.id WHERE r.asset_id=?",(asset_id,)).fetchone()
             return row[0]
+
+    def test_composition_snapshot_requires_real_output_and_invalidates_review_on_change(self):
+        picture=(ROOT / "tests/fixtures/wuxiang/cryn-character.jpg").read_bytes()
+        video=(ROOT / "tests/fixtures/wuxiang/cryn-bagua-part01.mp4").read_bytes()
+        visual=store.register_production_asset("wuxiang","character","teacher.jpg",picture,self.employee["id"])
+        with store.connect() as c:
+            row=c.execute("SELECT payload FROM martial_master_versions WHERE master_id='wongkey' AND version=2").fetchone()
+            payload=store.parse(row[0],{});payload["portrait"]=visual["id"]
+            c.execute("UPDATE martial_master_versions SET payload=? WHERE master_id='wongkey' AND version=2",(store.dumps(payload),))
+        human=store.register_production_asset("wuxiang","motion_reference","human.mp4",video,self.employee["id"])
+        martial.link_motion(self.employee,self.move_id,{"asset_id":human["id"],"start_time":0,"end_time":15})
+        with store.connect() as c:
+            ref=c.execute("SELECT id FROM martial_motion_refs WHERE move_id=? ORDER BY version DESC LIMIT 1",(self.move_id,)).fetchone()[0]
+        martial.confirm_motion(self.employee,ref)
+        task=store.create_task({"project_id":"wuxiang","workflow_id":"WF-02","title":"教学合成测试","why":"核对素材版本锁定"},"u_system")
+        generated=store.register_production_asset("wuxiang","candidate_video","generated.mp4",video,self.employee["id"])
+        stamp=store.now()
+        with store.connect() as c:
+            c.execute("""INSERT INTO martial_packages(id,move_id,motion_ref_id,master_version,task_id,request_key,status,
+              facts_hash,facts,result,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+              ("pkg_lesson_test",self.move_id,ref,2,task["id"],"lesson-pkg","complete","facts", "{}","{}",stamp,stamp))
+            c.execute("""INSERT INTO martial_media_jobs(id,move_id,task_id,package_id,motion_ref_id,master_version,
+              asset_type,provider,model_alias,model,prompt_hash,prompt,character_asset_id,duration,aspect_ratio,
+              resolution,status,request_key,idempotency_key,candidate_asset_id,reserved_cost,quote_source,created_at,updated_at)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+              ("mj_lesson_test",self.move_id,task["id"],"pkg_lesson_test",ref,2,"teaching","runy","sd2.5","model",
+               "prompt-sha","prompt",visual["id"],15,"9:16","480p","succeeded","lesson-media","lesson-idempotent",
+               generated["id"],0,"fixture",stamp,stamp))
+            c.execute("""INSERT INTO martial_qc(id,media_job_id,move_id,stage,result,findings,reference_comparison,reviewer_id,created_at)
+              VALUES(?,?,?,?,?,?,?,?,?)""",("qc_lesson_test","mj_lesson_test",self.move_id,"martial","pass",
+                                    "逐项符合","已对照真人参考",self.employee["id"],stamp))
+            c.execute("""INSERT INTO martial_final_assets(id,move_id,asset_type,media_job_id,asset_id,status,approved_by,created_at)
+              VALUES(?,?,?,?,?,?,?,?)""",("mf_lesson_test",self.move_id,"teaching","mj_lesson_test",generated["id"],"active","u_system",stamp))
+        lesson_pipeline.save_shot(self.employee,self.move_id,{"ordinal":1,"duration":15,"purpose":"讲解并演示第一式",
+            "camera":"全身正面固定","start_state":"抱拳准备","end_state":"收势并步"})
+        background=self._registered_image("background.jpg")
+        lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"background","asset_id":background})
+        sound=io.BytesIO()
+        with wave.open(sound,"wb") as wav:
+            wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(8000);wav.writeframes(b"\x00\x00"*800)
+        voice=store.register_production_asset("wuxiang","instruction_voice","lesson.wav",sound.getvalue(),self.employee["id"])
+        output=store.register_production_asset("wuxiang","lesson_output","complete.mp4",video,self.employee["id"])
+        asset_center.sync_internal()
+        with store.connect() as c:
+            voice_reg=c.execute("SELECT asset_id FROM asset_registry_sources WHERE original_id=?",(voice["id"],)).fetchone()[0]
+            output_reg=c.execute("SELECT asset_id FROM asset_registry_sources WHERE original_id=?",(output["id"],)).fetchone()[0]
+        lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"instruction_voice","asset_id":voice_reg})
+        pending=lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"lesson_output","asset_id":output_reg})
+        self.assertFalse(pending["dependencies"]["checks"]["video"])
+        locked=lesson_pipeline.lock_composition(self.employee,self.move_id,{"notes":"使用当前真人动作、背景及教学语音完成整式合成"})
+        self.assertTrue(locked["dependencies"]["checks"]["video"])
+        reviewed=lesson_pipeline.review(self.manager,self.move_id,{"stage":"audiovisual","verdict":"pass",
+            "notes":"已连续观看完整十五秒并听审教学语音及动作节拍", "evidence":["test-review"]})
+        self.assertTrue(reviewed["dependencies"]["checks"]["audiovisual_review"])
+        approved=lesson_pipeline.approve(self.manager,self.move_id)
+        self.assertEqual(approved["status"],"approved")
+        changed=self._registered_image("background-v2.jpg",b"\0")
+        after=lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"background","asset_id":changed})
+        self.assertFalse(after["dependencies"]["checks"]["composition"])
+        self.assertFalse(after["dependencies"]["checks"]["audiovisual_review"])
+        self.assertIsNone(after["lesson"]["approved_sha256"])
 
 
 if __name__ == "__main__":

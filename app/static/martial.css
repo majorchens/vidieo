@@ -54,3 +54,4 @@
 @media(max-width:650px){.mw-production-total{grid-template-columns:1fr 1fr}.mw-production-total>div:first-child{grid-column:1/-1}.mw-quote-head{display:grid}}
 
 .mw-panel>video{display:block;width:min(100%,420px);max-height:520px;margin-top:12px;border-radius:10px;background:#101510}
+.mw-panel:has(#mw-composition-notes) label{display:grid;gap:6px;margin:12px 0;color:#557260;font-size:13px}.mw-panel:has(#mw-composition-notes) textarea{min-height:82px;width:100%;padding:9px;border:1px solid #cbdccd;border-radius:8px;background:#fff;color:#284636}

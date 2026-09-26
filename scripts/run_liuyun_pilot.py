@@ -100,7 +100,20 @@ def main() -> None:
         "sources": {role: {key: value for key, value in item.items()
                             if key in {"sha256", "bytes", "technical_video"}}
                     for role, item in copied.items()},
-        "quality_note": "历史 R2 有掌位与朝向问题；只验证文件、技术解析、资产归集和发布拦截。未做当前版本动作或完整视听人工验收。",
+        "historical_qa": {
+            "verdict": "needs_revision",
+            "source_records": [
+                "work/first-forms-20260917/delivery/交付说明.md",
+                "work/first-forms-20260917/delivery-r2/交付说明.md",
+                "work/first-forms-20260917/picture-review.md",
+            ],
+            "known_findings": [
+                {"issue": "托掌短暂高于参考且翻掌路径不完全一致", "ranges_seconds": [[6.3, 7.0], [11.4, 12.0], [15.0, 15.6]]},
+                {"issue": "第一遍预备转头与真人参考方向不一致"},
+            ],
+            "technical_scope": "文件解析、Asset Center 归集、版本关系与发布阻断已验证",
+            "unverified": ["当前版真人标准动作确认", "现版数字老师与独立背景", "武术专业 QC", "原速连续视听人工验收"],
+        },
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")

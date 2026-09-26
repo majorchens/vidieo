@@ -638,12 +638,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(martial.batch_approve_moves(user,batch_post.group(1),data.get("move_ids")));return
             if path=="/api/martial/moves":
                 self.send_json(martial_product.create_move(user,data),201);return
-            lesson_action=re.fullmatch(r"/api/martial/lessons/([a-z0-9_]+)/(bind|upload|shot|review|approve|publish)",path)
+            lesson_action=re.fullmatch(r"/api/martial/lessons/([a-z0-9_]+)/(bind|upload|shot|composition|review|approve|publish)",path)
             if lesson_action:
                 move_id,action=lesson_action.groups()
                 result=(lesson_pipeline.bind_asset(user,move_id,data) if action=="bind" else
                         lesson_pipeline.upload_asset(user,move_id,data) if action=="upload" else
                         lesson_pipeline.save_shot(user,move_id,data) if action=="shot" else
+                        lesson_pipeline.lock_composition(user,move_id,data) if action=="composition" else
                         lesson_pipeline.review(user,move_id,data) if action=="review" else
                         lesson_pipeline.approve(user,move_id) if action=="approve" else
                         lesson_pipeline.publish(user,move_id))

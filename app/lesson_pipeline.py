@@ -29,6 +29,7 @@ ROLES = {
     "camera": {"document", "script"},
     "prompt": {"prompt", "document"},
     "workflow": {"document"},
+    "lesson_output": {"video"},
     "pilot_video": {"video"},
     "pilot_motion_ref": {"video"},
     "pilot_audio": {"audio"},
@@ -42,7 +43,8 @@ OWNERS = {
     "scene": "美术", "background": "美术", "teacher_model": "美术", "instruction_script": "武术 / 运营",
     "instruction_voice": "AI Production OS", "narrative_voice": "AI Production OS",
     "bgm": "AI Production OS", "sfx": "AI Production OS",
-    "video": "AI Production OS", "pilot_video": "AI Production OS", "pilot_motion_ref": "武术 / 运营",
+    "composition": "AI Production OS", "video": "AI Production OS", "pilot_video": "AI Production OS",
+    "pilot_motion_ref": "武术 / 运营",
     "pilot_audio": "AI Production OS",
     "pilot_subtitle": "AI Production OS", "audiovisual_review": "最终人工验收",
 }
@@ -53,12 +55,13 @@ LABELS = {
     "scene": "教学场景", "background": "教学背景", "teacher_model": "数字人模型",
     "instruction_script": "教学讲解",
     "instruction_voice": "老师教学语音", "narrative_voice": "OS 画外音",
-    "bgm": "背景音乐", "sfx": "音效", "video": "教学视频", "pilot_video": "历史样片",
+    "bgm": "背景音乐", "sfx": "音效", "composition": "合成锁定", "video": "教学视频",
+    "pilot_video": "历史样片",
     "pilot_motion_ref": "历史参考片段", "pilot_audio": "历史语音", "pilot_subtitle": "历史字幕",
     "audiovisual_review": "成片视听验收",
 }
 ESSENTIAL = ("facts", "teacher", "shot_plan", "motion_source", "motion_mapping", "motion_review",
-             "background", "instruction_script", "instruction_voice", "video", "audiovisual_review")
+             "background", "instruction_script", "instruction_voice", "composition", "video", "audiovisual_review")
 
 
 def production_rules(art_id: str) -> list[dict]:
@@ -111,14 +114,29 @@ def initialize() -> None:
           lesson_id TEXT NOT NULL REFERENCES martial_lesson_packages(id),
           version INTEGER NOT NULL, stage TEXT NOT NULL, verdict TEXT NOT NULL,
           media_job_id TEXT, evidence TEXT NOT NULL, notes TEXT NOT NULL,
+          output_sha256 TEXT, composition_version INTEGER,
           reviewer_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL,
           PRIMARY KEY(lesson_id,version,stage));
+        CREATE TABLE IF NOT EXISTS martial_lesson_compositions(
+          lesson_id TEXT NOT NULL REFERENCES martial_lesson_packages(id), version INTEGER NOT NULL,
+          source_final_id TEXT NOT NULL REFERENCES martial_final_assets(id),
+          output_registry_asset_id TEXT NOT NULL REFERENCES asset_registry(asset_id),
+          output_sha256 TEXT NOT NULL, inputs_sha256 TEXT NOT NULL, inputs_manifest TEXT NOT NULL,
+          notes TEXT NOT NULL, status TEXT NOT NULL,
+          created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL,
+          PRIMARY KEY(lesson_id,version));
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_lesson_composition_active
+          ON martial_lesson_compositions(lesson_id) WHERE status='active';
         CREATE TABLE IF NOT EXISTS martial_lesson_manifests(
           lesson_id TEXT NOT NULL REFERENCES martial_lesson_packages(id), version INTEGER NOT NULL,
           manifest TEXT NOT NULL, sha256 TEXT NOT NULL, status TEXT NOT NULL,
           created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL,
           PRIMARY KEY(lesson_id,version));
         """)
+        if "output_sha256" not in {r[1] for r in c.execute("PRAGMA table_info(martial_lesson_reviews)")}:
+            c.execute("ALTER TABLE martial_lesson_reviews ADD COLUMN output_sha256 TEXT")
+        if "composition_version" not in {r[1] for r in c.execute("PRAGMA table_info(martial_lesson_reviews)")}:
+            c.execute("ALTER TABLE martial_lesson_reviews ADD COLUMN composition_version INTEGER")
 
 
 def _ensure(c, move_id: str) -> dict:
@@ -146,6 +164,8 @@ def bind_asset(user: dict, move_id: str, data: dict) -> dict:
     if role not in ROLES:
         raise ValueError("未知教学资产用途")
     shot_id = str(data.get("shot_id") or "")
+    if role == "lesson_output" and shot_id:
+        raise ValueError("完整教学成片须关联整式")
     asset_id = str(data.get("asset_id") or "")
     asset_center.sync_internal()
     # Resolve through the existing access policy. Legacy references without a
@@ -270,6 +290,73 @@ def _latest_candidate(c, move_id: str) -> dict | None:
     return None
 
 
+def _canonical_sha(value: object) -> str:
+    return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+
+
+def _composition_inputs(c, lesson: dict, teacher: dict, ref: dict | None, source_final: dict | None) -> dict | None:
+    if not ref or not source_final:return None
+    art=c.execute("SELECT version,master_id FROM martial_arts WHERE id=?",(lesson["art_id"],)).fetchone()
+    move=c.execute("SELECT current_version FROM martial_moves WHERE id=?",(lesson["move_id"],)).fetchone()
+    facts=c.execute("SELECT payload FROM martial_move_versions WHERE move_id=? AND version=?",
+                    (lesson["move_id"],move["current_version"])).fetchone()
+    source_asset=c.execute("SELECT sha256 FROM assets WHERE id=?",(source_final["asset_id"],)).fetchone()
+    visual=c.execute("SELECT sha256 FROM assets WHERE id=?",(teacher.get("visual_asset_id"),)).fetchone()
+    qc=c.execute("SELECT result,reviewer_id,checks,issue_ranges,findings FROM martial_qc WHERE id=?",(source_final["martial_qc_id"],)).fetchone()
+    assets=[dict(r) for r in c.execute("""SELECT role,shot_id,version,registry_asset_id,registry_version,sha256
+      FROM martial_lesson_asset_versions WHERE lesson_id=? AND status='active'
+      AND role!='lesson_output' AND role NOT LIKE 'pilot_%' ORDER BY role,shot_id""",(lesson["id"],))]
+    shots=[dict(r) for r in c.execute("""SELECT shot_id,version,ordinal,purpose,start_state,end_state,camera,duration
+      FROM martial_lesson_shots WHERE lesson_id=? AND status='active' ORDER BY ordinal,shot_id""",(lesson["id"],))]
+    return {"art_version":art["version"],"chapter":lesson["chapter"],
+            "facts":{"version":move["current_version"],"sha256":hashlib.sha256(facts["payload"].encode()).hexdigest() if facts else None},
+            "teacher":{"master_id":art["master_id"],"version":teacher.get("version"),
+                       "visual_asset_id":teacher.get("visual_asset_id"),"visual_sha256":visual["sha256"] if visual else None,
+                       "voice_id":teacher.get("voice_id")},
+            "motion_source":{"id":ref["id"],"version":ref["version"],"sha256":ref["source_sha256"]},
+            "source_video":{"final_id":source_final["id"],"asset_id":source_final["asset_id"],
+                            "sha256":source_asset["sha256"] if source_asset else None,
+                            "media_job_id":source_final["media_job_id"],"prompt_hash":source_final["prompt_hash"],
+                            "martial_qc_id":source_final["martial_qc_id"],
+                            "martial_qc_sha256":_canonical_sha(dict(qc)) if qc else None},
+            "shots":shots,"assets":assets,"production_rules":production_rules(lesson["art_id"])}
+
+
+def lock_composition(user: dict, move_id: str, data: dict) -> dict:
+    martial.allow(user,True)
+    notes=str(data.get("notes") or "").strip()
+    if len(notes)<12 or len(notes)>2000:raise ValueError("请记录成片合成方式与核对依据")
+    with store.connect() as c:
+        lesson=_ensure(c,move_id)
+        state=_check(c,lesson)
+        required=("facts","teacher","shot_plan","motion_source","motion_mapping","motion_review",
+                  "background","instruction_script","instruction_voice")
+        missing=[LABELS[key] for key in required if not state["checks"][key]]
+        if missing or not state["source_final"] or state["source_final"]["martial_qc_result"]!="pass":
+            raise ValueError("合成前缺少："+"、".join(missing or ["已定版的动作视频"]))
+        output=_binding(c,lesson["id"],"lesson_output")
+        if not output:raise ValueError("请先上传或关联完整教学成片")
+        output_file=asset_center.media_path(user,output["registry_asset_id"])
+        if output_file.suffix.lower() not in {".mp4",".mov"} or store.digest_file(output_file)!=output["sha256"]:
+            raise ValueError("成片文件不可读或与资产登记不一致")
+        inputs=_composition_inputs(c,lesson,state["teacher"],state["motion_reference"],state["source_final"])
+        if inputs is None:raise ValueError("合成依赖已变化")
+        body=json.dumps(inputs,ensure_ascii=False,sort_keys=True,separators=(",",":"))
+        sha=hashlib.sha256(body.encode()).hexdigest()
+        version=c.execute("SELECT COALESCE(MAX(version),0)+1 FROM martial_lesson_compositions WHERE lesson_id=?",(lesson["id"],)).fetchone()[0]
+        c.execute("UPDATE martial_lesson_compositions SET status='superseded' WHERE lesson_id=? AND status='active'",(lesson["id"],))
+        c.execute("""INSERT INTO martial_lesson_compositions
+          (lesson_id,version,source_final_id,output_registry_asset_id,output_sha256,inputs_sha256,inputs_manifest,notes,status,created_by,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+          (lesson["id"],version,state["source_final"]["id"],output["registry_asset_id"],output["sha256"],
+           sha,body,notes,"active",user["id"],store.now()))
+        c.execute("UPDATE martial_lesson_packages SET approved_manifest=NULL,approved_sha256=NULL,approved_by=NULL,approved_at=NULL,published_at=NULL,updated_at=? WHERE id=?",
+                  (store.now(),lesson["id"]))
+        store.audit(c,user["id"],"lesson.composition.lock",None,
+                    {"lesson_id":lesson["id"],"version":version,"output_asset_id":output["registry_asset_id"],"inputs_sha256":sha})
+    return detail(user,move_id)
+
+
 def _check(c, lesson: dict) -> dict:
     art = c.execute("SELECT * FROM martial_arts WHERE id=?", (lesson["art_id"],)).fetchone()
     move = c.execute("SELECT * FROM martial_moves WHERE id=?", (lesson["move_id"],)).fetchone()
@@ -296,21 +383,43 @@ def _check(c, lesson: dict) -> dict:
     pilot_motion_ref = _binding(c, lesson["id"], "pilot_motion_ref")
     pilot_audio = _binding(c, lesson["id"], "pilot_audio")
     pilot_subtitle = _binding(c, lesson["id"], "pilot_subtitle")
+    shot_ids=[r[0] for r in c.execute("SELECT shot_id FROM martial_lesson_shots WHERE lesson_id=? AND status='active'",(lesson["id"],))]
+    all_shots_have=lambda role: bool(shot_ids and all(_binding(c,lesson["id"],role,shot_id) for shot_id in shot_ids))
+    output = _binding(c, lesson["id"], "lesson_output")
+    composition_row = c.execute("SELECT * FROM martial_lesson_compositions WHERE lesson_id=? AND status='active'",
+                                (lesson["id"],)).fetchone()
+    composition_row = dict(composition_row) if composition_row else None
+    inputs = _composition_inputs(c,lesson,teacher,ref,final) if final and ref else None
+    composition_current = bool(composition_row and output and final and
+                               final["martial_qc_result"] == "pass" and final["martial_reviewer"] and
+                               composition_row["source_final_id"] == final["id"] and
+                               composition_row["output_registry_asset_id"] == output["registry_asset_id"] and
+                               composition_row["output_sha256"] == output["sha256"] and
+                               composition_row["inputs_sha256"] == _canonical_sha(inputs))
+    composed = ({"id":f"{lesson['id']}_composition_v{composition_row['version']}",
+                 "asset_id":output["original_id"],"registry_asset_id":output["registry_asset_id"],
+                 "sha256":output["sha256"],"composition_version":composition_row["version"],
+                 "inputs_sha256":composition_row["inputs_sha256"],"source_final_id":final["id"],
+                 "media_job_id":final["media_job_id"],"package_id":final["package_id"],
+                 "provider":final["provider"],"model":final["model"],"prompt_hash":final["prompt_hash"],
+                 "martial_qc_id":final["martial_qc_id"],"martial_qc_result":final["martial_qc_result"],
+                 "martial_reviewer":final["martial_reviewer"],"status":"active"}
+                if composition_current else None)
     latest_review = c.execute("""SELECT * FROM martial_lesson_reviews WHERE lesson_id=? AND stage='audiovisual'
       ORDER BY version DESC LIMIT 1""", (lesson["id"],)).fetchone()
     latest_review = dict(latest_review) if latest_review else None
     checks = {
       "facts": bool(art["status"] == "active" and move["current_version"] and (facts.get("chinese_action") or facts.get("english_action"))),
       "teacher": bool(teacher.get("production_ready")),
-      "shot_plan": bool(c.execute("SELECT 1 FROM martial_lesson_shots WHERE lesson_id=? AND status='active' LIMIT 1",(lesson["id"],)).fetchone()),
+      "shot_plan": bool(shot_ids),
       "motion_source": bool(ref and ref["source_sha256"]),
       "motion_mapping": bool(candidate and candidate["status"] == "succeeded" and candidate["candidate_asset_id"]),
       "motion_review": bool(candidate and candidate["martial_qc_result"] == "pass" and candidate["martial_reviewer"]),
-      "background": bool(bg),
+      "background": bool(bg or all_shots_have("background")),
       "scene": bool(scene),
       "teacher_model": bool(teacher_model),
       "instruction_script": bool(facts.get("chinese_coaching") or facts.get("english_coaching")),
-      "instruction_voice": bool(voice),
+      "instruction_voice": bool(voice or all_shots_have("instruction_voice")),
       "narrative_voice": bool(narration),
       "bgm": bool(bgm),
       "sfx": bool(sfx),
@@ -318,9 +427,12 @@ def _check(c, lesson: dict) -> dict:
       "pilot_motion_ref": bool(pilot_motion_ref),
       "pilot_audio": bool(pilot_audio),
       "pilot_subtitle": bool(pilot_subtitle),
-      "video": bool(final and final["asset_id"]),
+      "composition": composition_current,
+      "video": bool(composed),
       "audiovisual_review": bool(latest_review and latest_review["verdict"] == "pass" and
-                                  final and latest_review["media_job_id"] == final["media_job_id"]),
+                                  composed and latest_review["media_job_id"] == composed["media_job_id"] and
+                                  latest_review["output_sha256"] == composed["sha256"] and
+                                  latest_review["composition_version"] == composed["composition_version"]),
     }
     stages = []
     for key, ready in checks.items():
@@ -344,10 +456,10 @@ def _check(c, lesson: dict) -> dict:
         status = "motion_processing"
     elif not checks["motion_review"]:
         status = "motion_review"
-    elif not checks["video"]:
-        status = "composition"
     elif not checks["instruction_voice"]:
         status = "voice_waiting"
+    elif not checks["composition"] or not checks["video"]:
+        status = "composition"
     elif not checks["audiovisual_review"]:
         status = "qa"
     else:
@@ -368,12 +480,14 @@ def _check(c, lesson: dict) -> dict:
         if not checks[sound]: ready_work.append(sound)
     if checks["teacher"] and checks["motion_source"] and not checks["motion_mapping"]: ready_work.append("motion_mapping")
     if checks["motion_mapping"] and not checks["motion_review"]: ready_work.append("motion_review")
-    if checks["motion_review"] and checks["background"] and not checks["video"]: ready_work.append("video")
+    if checks["motion_review"] and checks["background"] and checks["instruction_voice"] and not output: ready_work.append("video")
+    if checks["motion_review"] and checks["background"] and checks["instruction_voice"] and output and not checks["composition"]: ready_work.append("composition")
     if checks["video"] and not checks["audiovisual_review"]: ready_work.append("audiovisual_review")
     return {"status": status, "checks": checks, "stages": stages,
             "ready_work": ready_work, "missing": [s for s in stages if not s["ready"]],
             "facts": facts, "teacher": teacher, "motion_reference": ref,
-            "candidate": candidate, "final_video": final, "review": latest_review}
+            "candidate": candidate, "source_final": final, "composition": composition_row,
+            "final_video": composed, "review": latest_review}
 
 
 def detail(user: dict, move_id: str) -> dict:
@@ -387,9 +501,15 @@ def detail(user: dict, move_id: str) -> dict:
         move = c.execute("SELECT ordinal,current_version FROM martial_moves WHERE id=?", (move_id,)).fetchone()
         motion = result["motion_reference"]
         final = result["final_video"]
+        source_final = result["source_final"]
+        composition = result["composition"]
         result["motion_reference"] = ({key:motion[key] for key in ("id","version","video_asset_id","source_sha256","status")}
                                       if motion else None)
-        result["final_video"] = ({key:final[key] for key in ("id","asset_id","media_job_id","martial_qc_id","martial_qc_result","martial_reviewer","status")}
+        result["source_final"] = ({key:source_final[key] for key in ("id","asset_id","media_job_id","martial_qc_result","martial_reviewer","status")}
+                                  if source_final else None)
+        result["composition"] = ({key:composition[key] for key in ("version","output_registry_asset_id","output_sha256","inputs_sha256","notes","created_at","status")}
+                                 if composition else None)
+        result["final_video"] = ({key:final[key] for key in ("id","asset_id","registry_asset_id","sha256","composition_version","media_job_id","martial_qc_id","martial_qc_result","martial_reviewer","status")}
                                  if final else None)
         return {"lesson": lesson, "art_name": art["chinese_name"], "move_ordinal": move["ordinal"],
                 "move_name": result["facts"].get("chinese_name") or f"第{move['ordinal']}式",
@@ -433,14 +553,15 @@ def review(user: dict, move_id: str, data: dict) -> dict:
         raise ValueError("请记录实际连续观看、听审范围与证据")
     with store.connect() as c:
         lesson = _ensure(c, move_id)
-        final = _active_final(c, move_id)
+        final = _check(c,lesson)["final_video"]
         if not final or final["martial_qc_result"] != "pass":
-            raise ValueError("动作专业验收及正式视频尚未通过")
+            raise ValueError("动作专业验收及合成成片尚未通过")
         version = c.execute("SELECT COALESCE(MAX(version),0)+1 FROM martial_lesson_reviews WHERE lesson_id=? AND stage='audiovisual'", (lesson["id"],)).fetchone()[0]
         c.execute("""INSERT INTO martial_lesson_reviews
-          (lesson_id,version,stage,verdict,media_job_id,evidence,notes,reviewer_id,created_at)
-          VALUES(?,?,?,?,?,?,?,?,?)""", (lesson["id"], version, "audiovisual", data["verdict"],
-                                  final["media_job_id"], store.dumps(evidence), notes, user["id"], store.now()))
+          (lesson_id,version,stage,verdict,media_job_id,evidence,notes,output_sha256,composition_version,reviewer_id,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (lesson["id"], version, "audiovisual", data["verdict"],
+                                  final["media_job_id"], store.dumps(evidence), notes,
+                                  final["sha256"],final["composition_version"],user["id"], store.now()))
         c.execute("UPDATE martial_lesson_packages SET approved_manifest=NULL,approved_sha256=NULL,approved_by=NULL,approved_at=NULL,published_at=NULL,updated_at=? WHERE id=?", (store.now(),lesson["id"]))
         store.audit(c,user["id"],"lesson.audiovisual.review",None,{"lesson_id":lesson["id"],"verdict":data["verdict"]})
     return detail(user,move_id)
@@ -461,6 +582,7 @@ def _manifest(c, lesson: dict, state: dict) -> dict:
     output = c.execute("SELECT sha256 FROM assets WHERE id=?",(final["asset_id"],)).fetchone()
     martial_review = c.execute("SELECT result,reviewer_id,checks,issue_ranges,findings FROM martial_qc WHERE id=?",(final["martial_qc_id"],)).fetchone()
     audiovisual = state["review"]
+    composition = state["composition"]
     return {"schema": "MartialArtsLessonPackage/v1", "project_id": "wuxiang",
             "lesson_id": lesson["id"], "chapter": lesson["chapter"], "art_id": lesson["art_id"],
             "art_version": art["version"], "move_id": lesson["move_id"],
@@ -469,7 +591,13 @@ def _manifest(c, lesson: dict, state: dict) -> dict:
                         "visual_asset_id":visual_id,"visual_sha256":visual["sha256"] if visual else None,
                         "voice_id":state["teacher"].get("voice_id")},
             "motion_source": {"reference_id": ref["id"], "version": ref["version"], "asset_id": ref["video_asset_id"], "sha256": ref["source_sha256"]},
-            "video": {"final_id": final["id"], "asset_id": final["asset_id"], "media_job_id": final["media_job_id"],
+            "composition":{"version":composition["version"],"inputs_sha256":composition["inputs_sha256"],
+                           "inputs":json.loads(composition["inputs_manifest"]),
+                           "notes_sha256":hashlib.sha256(composition["notes"].encode()).hexdigest()},
+            "video": {"final_id": final["id"], "source_final_id":final["source_final_id"],
+                      "composition_version":final["composition_version"],
+                      "asset_id": final["asset_id"], "registry_asset_id":final["registry_asset_id"],
+                      "media_job_id": final["media_job_id"],
                       "package_id": final["package_id"], "provider": final["provider"], "model": final["model"],
                       "prompt_hash": final["prompt_hash"], "sha256": output["sha256"] if output else None,
                       "martial_qc_id": final["martial_qc_id"],
@@ -481,6 +609,8 @@ def _manifest(c, lesson: dict, state: dict) -> dict:
 
 
 def _verify_manifest_files(c, manifest: dict) -> None:
+    if _canonical_sha(manifest["composition"]["inputs"])!=manifest["composition"]["inputs_sha256"]:
+        raise ValueError("合成输入快照校验失败")
     for binding in manifest["assets"]:
         row = c.execute("SELECT * FROM asset_registry WHERE asset_id=?", (binding["registry_asset_id"],)).fetchone()
         if not row or row["status"] != "active" or row["version"] != binding["registry_version"] or row["sha256"] != binding["sha256"]:
@@ -495,6 +625,10 @@ def _verify_manifest_files(c, manifest: dict) -> None:
         row = c.execute("SELECT storage_ref,sha256 FROM assets WHERE id=?", (item["asset_id"],)).fetchone()
         if not row or not Path(row["storage_ref"]).is_file() or store.digest_file(Path(row["storage_ref"])) != row["sha256"]:
             raise ValueError("动作或成片文件缺失或校验和变化")
+    source=manifest["composition"]["inputs"]["source_video"]
+    row=c.execute("SELECT storage_ref,sha256 FROM assets WHERE id=?",(source["asset_id"],)).fetchone()
+    if not row or row["sha256"]!=source["sha256"] or not Path(row["storage_ref"]).is_file() or store.digest_file(Path(row["storage_ref"]))!=row["sha256"]:
+        raise ValueError("合成来源视频缺失或校验和变化")
     teacher = manifest["teacher"]
     visual = c.execute("SELECT storage_ref,sha256 FROM assets WHERE id=?",(teacher["visual_asset_id"],)).fetchone()
     if not visual or visual["sha256"] != teacher["visual_sha256"] or not Path(visual["storage_ref"]).is_file() or store.digest_file(Path(visual["storage_ref"])) != visual["sha256"]:
