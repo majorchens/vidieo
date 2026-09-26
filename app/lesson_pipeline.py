@@ -416,13 +416,13 @@ def _check(c, lesson: dict) -> dict:
       "motion_mapping": bool(candidate and candidate["status"] == "succeeded" and candidate["candidate_asset_id"]),
       "motion_review": bool(candidate and candidate["martial_qc_result"] == "pass" and candidate["martial_reviewer"]),
       "background": bool(bg or all_shots_have("background")),
-      "scene": bool(scene),
-      "teacher_model": bool(teacher_model),
+      "scene": bool(scene or all_shots_have("scene")),
+      "teacher_model": bool(teacher_model or all_shots_have("teacher_model")),
       "instruction_script": bool(facts.get("chinese_coaching") or facts.get("english_coaching")),
       "instruction_voice": bool(voice or all_shots_have("instruction_voice")),
-      "narrative_voice": bool(narration),
-      "bgm": bool(bgm),
-      "sfx": bool(sfx),
+      "narrative_voice": bool(narration or all_shots_have("narrative_voice")),
+      "bgm": bool(bgm or all_shots_have("bgm")),
+      "sfx": bool(sfx or all_shots_have("sfx")),
       "pilot_video": bool(pilot),
       "pilot_motion_ref": bool(pilot_motion_ref),
       "pilot_audio": bool(pilot_audio),
@@ -605,7 +605,9 @@ def _manifest(c, lesson: dict, state: dict) -> dict:
             "shots": shots, "assets": bindings, "production_rules": production_rules(lesson["art_id"]),
             "audiovisual_review": {"version": audiovisual["version"], "reviewer_id": audiovisual["reviewer_id"],
                                    "sha256": hashlib.sha256((audiovisual["evidence"]+audiovisual["notes"]).encode()).hexdigest()},
-            "placeholders": [k for k in ("narrative_voice", "bgm", "sfx", "subtitle") if not _binding(c,lesson["id"],k)]}
+            "placeholders": [k for k in ("narrative_voice", "bgm", "sfx", "subtitle")
+                             if not (state["checks"].get(k) or _binding(c,lesson["id"],k) or
+                                     (shots and all(_binding(c,lesson["id"],k,s["shot_id"]) for s in shots)))]}
 
 
 def _verify_manifest_files(c, manifest: dict) -> None:

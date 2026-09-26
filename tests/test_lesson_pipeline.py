@@ -152,8 +152,9 @@ class LessonPipelineTest(unittest.TestCase):
                                     "逐项符合","已对照真人参考",self.employee["id"],stamp))
             c.execute("""INSERT INTO martial_final_assets(id,move_id,asset_type,media_job_id,asset_id,status,approved_by,created_at)
               VALUES(?,?,?,?,?,?,?,?)""",("mf_lesson_test",self.move_id,"teaching","mj_lesson_test",generated["id"],"active","u_system",stamp))
-        lesson_pipeline.save_shot(self.employee,self.move_id,{"ordinal":1,"duration":15,"purpose":"讲解并演示第一式",
+        shot_state=lesson_pipeline.save_shot(self.employee,self.move_id,{"ordinal":1,"duration":15,"purpose":"讲解并演示第一式",
             "camera":"全身正面固定","start_state":"抱拳准备","end_state":"收势并步"})
+        shot_id=shot_state["shots"][0]["shot_id"]
         background=self._registered_image("background.jpg")
         lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"background","asset_id":background})
         sound=io.BytesIO()
@@ -166,6 +167,7 @@ class LessonPipelineTest(unittest.TestCase):
             voice_reg=c.execute("SELECT asset_id FROM asset_registry_sources WHERE original_id=?",(voice["id"],)).fetchone()[0]
             output_reg=c.execute("SELECT asset_id FROM asset_registry_sources WHERE original_id=?",(output["id"],)).fetchone()[0]
         lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"instruction_voice","asset_id":voice_reg})
+        lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"bgm","asset_id":voice_reg,"shot_id":shot_id})
         pending=lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"lesson_output","asset_id":output_reg})
         self.assertFalse(pending["dependencies"]["checks"]["video"])
         locked=lesson_pipeline.lock_composition(self.employee,self.move_id,{"notes":"使用当前真人动作、背景及教学语音完成整式合成"})
@@ -175,6 +177,9 @@ class LessonPipelineTest(unittest.TestCase):
         self.assertTrue(reviewed["dependencies"]["checks"]["audiovisual_review"])
         approved=lesson_pipeline.approve(self.manager,self.move_id)
         self.assertEqual(approved["status"],"approved")
+        with store.connect() as c:
+            manifest=store.parse(c.execute("SELECT approved_manifest FROM martial_lesson_packages WHERE move_id=?",(self.move_id,)).fetchone()[0],{})
+        self.assertNotIn("bgm",manifest["placeholders"])
         changed=self._registered_image("background-v2.jpg",b"\0")
         after=lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"background","asset_id":changed})
         self.assertFalse(after["dependencies"]["checks"]["composition"])
