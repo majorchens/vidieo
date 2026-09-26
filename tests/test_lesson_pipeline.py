@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))
@@ -220,6 +221,8 @@ class LessonPipelineTest(unittest.TestCase):
         with store.connect() as c:
             manifest=store.parse(c.execute("SELECT approved_manifest FROM martial_lesson_packages WHERE move_id=?",(self.move_id,)).fetchone()[0],{})
         self.assertNotIn("bgm",manifest["placeholders"])
+        with mock.patch.object(lesson_pipeline,"_build_info",return_value={"schema":"WorkOSBuild/v1","git_commit":"f"*40,"dirty":False}):
+            self.assertEqual(lesson_pipeline.publish(self.manager,self.move_id)["status"],"published")
         changed=self._registered_image("background-v2.jpg",b"\0")
         after=lesson_pipeline.bind_asset(self.employee,self.move_id,{"role":"background","asset_id":changed})
         self.assertFalse(after["dependencies"]["checks"]["composition"])

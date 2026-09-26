@@ -957,6 +957,10 @@ def publish(user: dict, move_id: str) -> dict:
         if any(t["stage"] in ESSENTIAL and t["status"]!="accepted" for t in _task_rows(c,lesson,state)):
             raise ValueError("发布前仍有必需岗位任务未验收")
         current = _manifest(c,lesson,state)
+        # The approved output keeps its original build commit. A later UI/code
+        # deployment must not rewrite that provenance at publication time.
+        approved=store.parse(lesson["approved_manifest"],{})
+        current["build"]=approved.get("build")
         _verify_manifest_files(c,current)
         sha = hashlib.sha256(json.dumps(current,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()).hexdigest()
         if sha != lesson["approved_sha256"]:raise ValueError("生产资产版本已变化，请重新批准")
