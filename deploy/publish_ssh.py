@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import io
+import json
 import re
 import stat
 import subprocess
@@ -25,6 +27,8 @@ def package_app(target: Path) -> int:
     files = []
     for path in app.rglob("*"):
         relative = path.relative_to(PROJECT).as_posix()
+        if relative == "app/build_provenance.json":
+            continue
         if any(part == "__pycache__" or part.startswith(".") or part.endswith(".dist-info")
                for part in path.relative_to(PROJECT).parts):
             continue
@@ -38,6 +42,10 @@ def package_app(target: Path) -> int:
         files.append((relative, path))
     if not REQUIRED <= {name for name, _ in files}:
         raise ValueError("required application entries are missing")
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=PROJECT, text=True).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=PROJECT, text=True).strip())
+    provenance = (json.dumps({"schema":"WorkOSBuild/v1","git_commit":commit,"dirty":dirty},
+                             sort_keys=True,separators=(",",":")) + "\n").encode()
     with target.open("xb") as raw:
         with gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed:
             with tarfile.open(fileobj=compressed, mode="w") as bundle:
@@ -48,7 +56,12 @@ def package_app(target: Path) -> int:
                     info.uid = info.gid = info.mtime = 0
                     with path.open("rb") as source:
                         bundle.addfile(info, source)
-    return len(files)
+                info = tarfile.TarInfo("app/build_provenance.json")
+                info.size = len(provenance)
+                info.mode = 0o644
+                info.uid = info.gid = info.mtime = 0
+                bundle.addfile(info, io.BytesIO(provenance))
+    return len(files) + 1
 
 
 def call(argv: list[str]) -> None:

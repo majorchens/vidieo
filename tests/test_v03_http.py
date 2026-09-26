@@ -149,6 +149,22 @@ class V03HttpSmokeTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("不能批准", error["error"])
 
+    def test_lesson_stage_tasks_are_visible_and_claimable(self):
+        move_id="mv_flowing_cloud_01"
+        status,_,tasks=self.request("POST",f"/api/martial/lessons/{move_id}/tasks",{},self.manager)
+        self.assertEqual(status,200)
+        self.assertTrue(any(t["stage"]=="motion_source" for t in tasks))
+        status,_,pool=self.request("GET","/api/martial/lesson-tasks",auth=self.employee)
+        self.assertEqual(status,200)
+        source=next(t for t in pool["tasks"] if t["move_id"]==move_id and t["stage"]=="motion_source")
+        self.assertEqual(source["production_status"],"Ready")
+        status,_,claimed=self.request("POST",f"/api/martial/lesson-tasks/{source['id']}/claim",{},self.employee)
+        self.assertEqual(status,200)
+        self.assertEqual(claimed["status"],"assigned")
+        status,_,task=self.request("GET",f"/api/tasks/{source['id']}",auth=self.employee)
+        self.assertEqual(status,200)
+        self.assertEqual(task["context"]["lesson_stage"],"motion_source")
+
     def test_creative_lab_import_route_and_review_gate(self):
         picture=(ROOT / "tests/fixtures/wuxiang/cryn-character.jpg").read_bytes()
         status, _, imported = self.request("POST", "/api/asset-center/import-creative-lab", {

@@ -398,6 +398,8 @@ class Handler(BaseHTTPRequestHandler):
             lesson_art=re.fullmatch(r"/api/martial/lesson-dashboard/([a-z0-9_]+)",path)
             if lesson_art:
                 self.send_json(lesson_pipeline.art_dashboard(user,lesson_art.group(1)));return
+            if path=="/api/martial/lesson-tasks":
+                self.send_json({"tasks":lesson_pipeline.task_pool(user)});return
             lesson_detail=re.fullmatch(r"/api/martial/lessons/([a-z0-9_]+)",path)
             if lesson_detail:
                 self.send_json(lesson_pipeline.detail(user,lesson_detail.group(1)));return
@@ -638,6 +640,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(martial.batch_approve_moves(user,batch_post.group(1),data.get("move_ids")));return
             if path=="/api/martial/moves":
                 self.send_json(martial_product.create_move(user,data),201);return
+            lesson_claim=re.fullmatch(r"/api/martial/lesson-tasks/(t_lesson_[a-z0-9_]+)/claim",path)
+            if lesson_claim:
+                self.send_json(lesson_pipeline.claim_task(user,lesson_claim.group(1)));return
+            lesson_coordination=re.fullmatch(r"/api/martial/lessons/([a-z0-9_]+)/(tasks|work-log)",path)
+            if lesson_coordination:
+                move_id,action=lesson_coordination.groups()
+                self.send_json(lesson_pipeline.ensure_tasks(user,move_id) if action=="tasks" else lesson_pipeline.log_work(user,move_id,data));return
             lesson_action=re.fullmatch(r"/api/martial/lessons/([a-z0-9_]+)/(bind|upload|shot|composition|review|approve|publish)",path)
             if lesson_action:
                 move_id,action=lesson_action.groups()
@@ -782,6 +791,10 @@ def main():
     ai_studio.initialize()
     asset_center.initialize()
     lesson_pipeline.initialize()
+    with store.connect() as c:
+        liuyun_exists=c.execute("SELECT 1 FROM martial_moves WHERE id='mv_flowing_cloud_01'").fetchone() is not None
+    if liuyun_exists:
+        lesson_pipeline.ensure_tasks({"id":"u_system","role":"manager"},"mv_flowing_cloud_01")
     legacy_asset_bridge.initialize()
     server=ThreadingHTTPServer((args.host,args.port),Handler)
     print(f"Yoodun Work OS http://{args.host}:{args.port}",flush=True)

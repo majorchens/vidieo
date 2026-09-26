@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import secrets
+import subprocess
 from pathlib import Path
 
 import asset_center
@@ -36,13 +37,14 @@ ROLES = {
     "pilot_subtitle": {"document"},
 }
 RULE_REGISTRY = Path(__file__).resolve().parent / "production_rules.json"
+BUILD_PROVENANCE = Path(__file__).resolve().parent / "build_provenance.json"
 OWNERS = {
     "facts": "武术 / 运营", "teacher": "美术", "shot_plan": "AI Production OS",
     "motion_source": "武术 / 运营",
     "motion_mapping": "AI Production OS", "motion_review": "武术 / 运营",
     "scene": "美术", "background": "美术", "teacher_model": "美术", "instruction_script": "武术 / 运营",
     "instruction_voice": "AI Production OS", "narrative_voice": "AI Production OS",
-    "bgm": "AI Production OS", "sfx": "AI Production OS",
+    "bgm": "AI Production OS", "sfx": "AI Production OS", "subtitle":"运营制作",
     "composition": "AI Production OS", "video": "AI Production OS", "pilot_video": "AI Production OS",
     "pilot_motion_ref": "武术 / 运营",
     "pilot_audio": "AI Production OS",
@@ -55,13 +57,51 @@ LABELS = {
     "scene": "教学场景", "background": "教学背景", "teacher_model": "数字人模型",
     "instruction_script": "教学讲解",
     "instruction_voice": "老师教学语音", "narrative_voice": "OS 画外音",
-    "bgm": "背景音乐", "sfx": "音效", "composition": "合成锁定", "video": "教学视频",
+    "bgm": "背景音乐", "sfx": "音效", "subtitle":"教学字幕",
+    "composition": "合成锁定", "video": "教学视频",
     "pilot_video": "历史样片",
     "pilot_motion_ref": "历史参考片段", "pilot_audio": "历史语音", "pilot_subtitle": "历史字幕",
     "audiovisual_review": "成片视听验收",
 }
 ESSENTIAL = ("facts", "teacher", "shot_plan", "motion_source", "motion_mapping", "motion_review",
              "background", "instruction_script", "instruction_voice", "composition", "video", "audiovisual_review")
+
+# These are existing Work OS tasks linked to one lesson, not a second task engine.
+PRODUCTION_TASKS = {
+    "motion_source": ("武术", (), "拍摄或确认真人标准动作，上传并锁定对应招式的 Motion REF。"),
+    "teacher": ("美术", (), "交付当前数字老师形象、服装、模型和版本，并完成老师审查。"),
+    "background": ("美术", (), "交付不含老师人物的独立教学背景，并关联本式。"),
+    "shot_plan": ("运营制作", (), "为本式建立有起止状态和机位的教学镜头。"),
+    "instruction_script": ("运营制作", (), "核对并确认本式教学讲解内容和动作口令。"),
+    "narrative_voice": ("运营制作", (), "交付或明确占位 OS 画外音，与老师讲解分开登记。"),
+    "subtitle": ("运营制作", (), "交付教学字幕并关联本式或对应镜头。"),
+    "bgm": ("运营制作", (), "交付或明确占位教学 BGM，保留独立音轨版本。"),
+    "sfx": ("运营制作", (), "交付或明确占位动作音效，保留独立音轨版本。"),
+    "instruction_voice": ("运营制作", ("instruction_script",), "用当前老师 Voice ID 制作教学语音并关联本式。"),
+    "motion_mapping": ("AI Production OS", ("motion_source", "teacher"), "按真人 Motion REF 制作数字老师动作候选，保留模型和 Prompt 版本。"),
+    "motion_review": ("武术", ("motion_mapping",), "逐段对照真人标准动作；记录问题时间、招式、身体部位、类型、严重度和意见。"),
+    "composition": ("AI Production OS", ("motion_review", "background", "instruction_voice", "shot_plan"), "合成完整教学成片，锁定所有输入与输出校验和。"),
+    "audiovisual_review": ("最终人工验收", ("composition",), "连续观看、听审并记录覆盖范围与结果。"),
+}
+
+
+def _allow_lesson(user: dict, write: bool = False) -> None:
+    if user["role"] in {"founder", "manager"} or martial.specialty(user):
+        return
+    if user["role"] == "employee" and store.project_allowed(user, "wuxiang"):
+        return
+    raise PermissionError("没有此功法教学包的访问权限")
+
+
+def _require_stage_owner(user: dict, move_id: str, stage: str) -> None:
+    if user["role"] in {"founder","manager"} or martial.specialty(user):return
+    with store.connect() as c:
+        row=c.execute("""SELECT 1 FROM martial_lesson_task_links l JOIN tasks t ON t.id=l.task_id
+          JOIN martial_lesson_packages p ON p.id=l.lesson_id
+          WHERE p.move_id=? AND l.stage=? AND t.assignee_id=?
+            AND t.status!='accepted'""",
+          (move_id,stage,user["id"])).fetchone()
+    if not row:raise PermissionError("此阶段须先领取对应岗位任务")
 
 
 def production_rules(art_id: str) -> list[dict]:
@@ -80,6 +120,19 @@ def production_rules(art_id: str) -> list[dict]:
             raise ValueError("正式生产规则的证据校验和无效")
         rules.append(item)
     return sorted(rules,key=lambda item:(item["id"],item["version"]))
+
+
+def _build_info() -> dict:
+    if BUILD_PROVENANCE.is_file():
+        value=json.loads(BUILD_PROVENANCE.read_text(encoding="utf-8"))
+        if value.get("schema")=="WorkOSBuild/v1" and re.fullmatch(r"[0-9a-f]{40}",str(value.get("git_commit"))):
+            return value
+    try:
+        commit=subprocess.check_output(["git","rev-parse","HEAD"],cwd=Path(__file__).resolve().parents[1],
+                                       text=True,stderr=subprocess.DEVNULL,timeout=3).strip()
+    except (OSError,subprocess.CalledProcessError,subprocess.TimeoutExpired):
+        commit="unversioned"
+    return {"schema":"WorkOSBuild/v1","git_commit":commit,"dirty":True}
 
 
 def initialize() -> None:
@@ -132,6 +185,14 @@ def initialize() -> None:
           manifest TEXT NOT NULL, sha256 TEXT NOT NULL, status TEXT NOT NULL,
           created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL,
           PRIMARY KEY(lesson_id,version));
+        CREATE TABLE IF NOT EXISTS martial_lesson_task_links(
+          lesson_id TEXT NOT NULL REFERENCES martial_lesson_packages(id),
+          stage TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+          created_at TEXT NOT NULL, PRIMARY KEY(lesson_id,stage));
+        CREATE TABLE IF NOT EXISTS martial_lesson_work_logs(
+          id TEXT PRIMARY KEY, lesson_id TEXT NOT NULL REFERENCES martial_lesson_packages(id),
+          stage TEXT NOT NULL, minutes REAL NOT NULL, note TEXT NOT NULL,
+          actor_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL);
         """)
         if "output_sha256" not in {r[1] for r in c.execute("PRAGMA table_info(martial_lesson_reviews)")}:
             c.execute("ALTER TABLE martial_lesson_reviews ADD COLUMN output_sha256 TEXT")
@@ -159,10 +220,15 @@ def _binding(c, lesson_id: str, role: str, shot_id: str = "") -> dict | None:
 
 
 def bind_asset(user: dict, move_id: str, data: dict) -> dict:
-    martial.allow(user, True)
+    _allow_lesson(user, True)
     role = str(data.get("role") or "")
     if role not in ROLES:
         raise ValueError("未知教学资产用途")
+    if role.startswith("pilot_") and user["role"]=="employee" and not martial.specialty(user):
+        raise PermissionError("历史试跑资产由武术岗位或负责人维护")
+    owner_stage={"scene":"background","teacher_model":"teacher","camera":"shot_plan",
+                 "prompt":"composition","workflow":"composition","lesson_output":"composition"}.get(role,role)
+    if owner_stage in PRODUCTION_TASKS:_require_stage_owner(user,move_id,owner_stage)
     shot_id = str(data.get("shot_id") or "")
     if role == "lesson_output" and shot_id:
         raise ValueError("完整教学成片须关联整式")
@@ -211,9 +277,14 @@ def bind_asset(user: dict, move_id: str, data: dict) -> dict:
 
 
 def upload_asset(user: dict, move_id: str, data: dict) -> dict:
-    martial.allow(user, True)
+    _allow_lesson(user, True)
     role = str(data.get("role") or "")
     if role not in ROLES:raise ValueError("未知教学资产用途")
+    if role.startswith("pilot_") and user["role"]=="employee" and not martial.specialty(user):
+        raise PermissionError("历史试跑资产由武术岗位或负责人维护")
+    owner_stage={"scene":"background","teacher_model":"teacher","camera":"shot_plan",
+                 "prompt":"composition","workflow":"composition","lesson_output":"composition"}.get(role,role)
+    if owner_stage in PRODUCTION_TASKS:_require_stage_owner(user,move_id,owner_stage)
     upload = data.get("upload") or {}
     filename = str(upload.get("name") or "")
     suffix = Path(filename).suffix.lower()
@@ -235,7 +306,8 @@ def upload_asset(user: dict, move_id: str, data: dict) -> dict:
 
 
 def save_shot(user: dict, move_id: str, data: dict) -> dict:
-    martial.allow(user, True)
+    _allow_lesson(user, True)
+    _require_stage_owner(user,move_id,"shot_plan")
     try:
         ordinal = int(data.get("ordinal"))
         duration = float(data.get("duration"))
@@ -271,7 +343,7 @@ def save_shot(user: dict, move_id: str, data: dict) -> dict:
 
 def _active_final(c, move_id: str, kind: str = "teaching") -> dict | None:
     row = c.execute("""SELECT f.*,j.master_version,j.motion_ref_id,j.package_id,j.prompt_hash,j.provider,j.model,
-      j.character_asset_id,j.status AS job_status,j.resolution,j.duration,
+      j.character_asset_id,j.video_plan_id,j.status AS job_status,j.resolution,j.duration,
       q.id AS martial_qc_id,q.result AS martial_qc_result,q.reviewer_id AS martial_reviewer
       FROM martial_final_assets f JOIN martial_media_jobs j ON j.id=f.media_job_id
       LEFT JOIN martial_qc q ON q.media_job_id=j.id AND q.stage='martial'
@@ -282,7 +354,7 @@ def _active_final(c, move_id: str, kind: str = "teaching") -> dict | None:
 
 def _latest_candidate(c, move_id: str) -> dict | None:
     for row in c.execute("""SELECT j.id,j.status,j.candidate_asset_id,j.motion_ref_id,j.master_version,
-       q.result AS martial_qc_result,
+       q.id AS martial_qc_id,q.result AS martial_qc_result,
        q.reviewer_id AS martial_reviewer FROM martial_media_jobs j
        LEFT JOIN martial_qc q ON q.media_job_id=j.id AND q.stage='martial'
        WHERE j.move_id=? AND j.asset_type='teaching' ORDER BY j.created_at DESC,j.rowid DESC""",(move_id,)):
@@ -303,6 +375,7 @@ def _composition_inputs(c, lesson: dict, teacher: dict, ref: dict | None, source
     source_asset=c.execute("SELECT sha256 FROM assets WHERE id=?",(source_final["asset_id"],)).fetchone()
     visual=c.execute("SELECT sha256 FROM assets WHERE id=?",(teacher.get("visual_asset_id"),)).fetchone()
     qc=c.execute("SELECT result,reviewer_id,checks,issue_ranges,findings FROM martial_qc WHERE id=?",(source_final["martial_qc_id"],)).fetchone()
+    plan=c.execute("SELECT version FROM martial_video_plans WHERE id=?",(source_final.get("video_plan_id"),)).fetchone()
     assets=[dict(r) for r in c.execute("""SELECT role,shot_id,version,registry_asset_id,registry_version,sha256
       FROM martial_lesson_asset_versions WHERE lesson_id=? AND status='active'
       AND role!='lesson_output' AND role NOT LIKE 'pilot_%' ORDER BY role,shot_id""",(lesson["id"],))]
@@ -317,13 +390,16 @@ def _composition_inputs(c, lesson: dict, teacher: dict, ref: dict | None, source
             "source_video":{"final_id":source_final["id"],"asset_id":source_final["asset_id"],
                             "sha256":source_asset["sha256"] if source_asset else None,
                             "media_job_id":source_final["media_job_id"],"prompt_hash":source_final["prompt_hash"],
+                            "video_plan_id":source_final.get("video_plan_id"),
+                            "video_plan_version":plan["version"] if plan else None,
                             "martial_qc_id":source_final["martial_qc_id"],
                             "martial_qc_sha256":_canonical_sha(dict(qc)) if qc else None},
             "shots":shots,"assets":assets,"production_rules":production_rules(lesson["art_id"])}
 
 
 def lock_composition(user: dict, move_id: str, data: dict) -> dict:
-    martial.allow(user,True)
+    _allow_lesson(user,True)
+    _require_stage_owner(user,move_id,"composition")
     notes=str(data.get("notes") or "").strip()
     if len(notes)<12 or len(notes)>2000:raise ValueError("请记录成片合成方式与核对依据")
     with store.connect() as c:
@@ -379,6 +455,7 @@ def _check(c, lesson: dict) -> dict:
     narration = _binding(c, lesson["id"], "narrative_voice")
     bgm = _binding(c, lesson["id"], "bgm")
     sfx = _binding(c, lesson["id"], "sfx")
+    subtitle = _binding(c, lesson["id"], "subtitle")
     pilot = _binding(c, lesson["id"], "pilot_video")
     pilot_motion_ref = _binding(c, lesson["id"], "pilot_motion_ref")
     pilot_audio = _binding(c, lesson["id"], "pilot_audio")
@@ -423,6 +500,7 @@ def _check(c, lesson: dict) -> dict:
       "narrative_voice": bool(narration or all_shots_have("narrative_voice")),
       "bgm": bool(bgm or all_shots_have("bgm")),
       "sfx": bool(sfx or all_shots_have("sfx")),
+      "subtitle": bool(subtitle or all_shots_have("subtitle")),
       "pilot_video": bool(pilot),
       "pilot_motion_ref": bool(pilot_motion_ref),
       "pilot_audio": bool(pilot_audio),
@@ -490,8 +568,204 @@ def _check(c, lesson: dict) -> dict:
             "final_video": composed, "review": latest_review}
 
 
+def _stage_fingerprint(c, lesson: dict, state: dict, stage: str) -> str:
+    value={"stage":stage,"ready":bool(state["checks"].get(stage))}
+    if stage=="teacher":value["teacher"]={key:state["teacher"].get(key) for key in ("version","visual_asset_id","voice_id","production_ready")}
+    elif stage=="motion_source":value["motion_reference"]={key:state["motion_reference"].get(key) for key in ("id","version","source_sha256")} if state["motion_reference"] else None
+    elif stage in {"motion_mapping","motion_review"}:
+        keys=("id","candidate_asset_id","motion_ref_id","master_version")
+        if stage=="motion_review":keys+=("martial_qc_id","martial_qc_result")
+        value["candidate"]={key:state["candidate"].get(key) for key in keys} if state["candidate"] else None
+    elif stage=="composition":value["composition"]={key:state["composition"].get(key) for key in ("version","inputs_sha256","output_sha256")} if state["composition"] else None
+    elif stage=="audiovisual_review":value["review"]={key:state["review"].get(key) for key in ("version","verdict","output_sha256","composition_version")} if state["review"] else None
+    elif stage=="instruction_script":value["script"]={key:state["facts"].get(key) for key in ("chinese_coaching","english_coaching")}
+    elif stage=="shot_plan":value["shots"]=[dict(r) for r in c.execute("SELECT shot_id,version,purpose,start_state,end_state,camera,duration FROM martial_lesson_shots WHERE lesson_id=? AND status='active' ORDER BY ordinal,shot_id",(lesson["id"],))]
+    else:
+        roles=(stage,"scene") if stage=="background" else (stage,"teacher_model") if stage=="teacher" else (stage,)
+        marks=",".join("?" for _ in roles)
+        value["assets"]=[dict(r) for r in c.execute(f"SELECT role,shot_id,version,registry_asset_id,sha256 FROM martial_lesson_asset_versions WHERE lesson_id=? AND status='active' AND role IN ({marks}) ORDER BY role,shot_id",(lesson["id"],*roles))]
+    return _canonical_sha(value)
+
+
+def record_task_acceptance(task_id: str) -> None:
+    with store.connect() as c:
+        task=store.record(c,"tasks",task_id)
+        context=store.parse(task["context"],{})
+        if task["status"]!="accepted" or context.get("lesson_stage") not in PRODUCTION_TASKS:return
+        lesson=_ensure(c,context["lesson_move_id"])
+        state=_check(c,lesson)
+        context["accepted_inputs_sha256"]=_stage_fingerprint(c,lesson,state,context["lesson_stage"])
+        c.execute("UPDATE tasks SET context=?,updated_at=? WHERE id=?",(store.dumps(context),store.now(),task_id))
+        store.audit(c,"u_system","lesson.task.accepted_inputs",task_id,{"sha256":context["accepted_inputs_sha256"]})
+
+
+def _task_rows(c, lesson: dict, state: dict) -> list[dict]:
+    rows=[]
+    for row in c.execute("""SELECT l.stage,t.id,t.status,t.assignee_id,t.blocked_reason,t.revision,
+      t.context,u.display_name AS assignee_name FROM martial_lesson_task_links l JOIN tasks t ON t.id=l.task_id
+      LEFT JOIN users u ON u.id=t.assignee_id WHERE l.lesson_id=?""",(lesson["id"],)):
+        item=dict(row)
+        owner,prereqs,_=PRODUCTION_TASKS[item["stage"]]
+        missing=[LABELS.get(key,key) for key in prereqs if not state["checks"].get(key)]
+        context=store.parse(item.pop("context"),{})
+        if item["status"]=="accepted" and context.get("accepted_inputs_sha256")!=_stage_fingerprint(c,lesson,state,item["stage"]):
+            reason="验收后的资产或审核版本已变化，需返修并重新验收"
+            c.execute("UPDATE tasks SET status='revision_required',blocked_reason=?,updated_at=? WHERE id=?",
+                      (reason,store.now(),item["id"]))
+            store.audit(c,"u_system","lesson.task.invalidate",item["id"],{"reason":reason})
+            item["status"],item["blocked_reason"]="revision_required",reason
+        if item["assignee_id"] is None and item["status"] in {"ready","blocked"}:
+            fresh="blocked" if missing else "ready"
+            reason="等待："+"、".join(missing) if missing else None
+            if fresh!=item["status"] or reason!=item["blocked_reason"]:
+                c.execute("UPDATE tasks SET status=?,blocked_reason=?,updated_at=? WHERE id=?",
+                          (fresh,reason,store.now(),item["id"]))
+                store.audit(c,"u_system","lesson.task.dependency",item["id"],{"status":fresh,"reason":reason})
+                item["status"],item["blocked_reason"]=fresh,reason
+        item.update({"lesson_id":lesson["id"],"move_id":lesson["move_id"],
+                     "move_name":state["facts"].get("chinese_name") or lesson["move_id"],
+                     "label":LABELS.get(item["stage"],item["stage"]),"owner_role":owner,
+                     "asset_ready":bool(state["checks"].get(item["stage"])),
+                     "waiting_for":missing,
+                     "production_status":("Approved" if item["status"]=="accepted" and state["checks"].get(item["stage"])
+                       else "Review" if item["status"] in {"submitted","technical_checked","ai_prechecked","human_review"}
+                       else "Blocked" if item["status"] in {"revision_required","failed","unknown_submission"}
+                       else "Waiting" if missing else "Ready")})
+        item["block_reason"]="、".join(missing) if missing else item["blocked_reason"]
+        rows.append(item)
+    return sorted(rows,key=lambda item:list(PRODUCTION_TASKS).index(item["stage"]))
+
+
+def ensure_tasks(user: dict, move_id: str) -> list[dict]:
+    """Create one idempotent set of real Work OS tasks for a selected lesson."""
+    if user["role"] not in {"founder","manager"}:raise PermissionError("只有负责人可建立岗位任务")
+    with store.connect() as c:
+        lesson=_ensure(c,move_id)
+        state=_check(c,lesson)
+        move_name=state["facts"].get("chinese_name") or move_id
+        for stage,(owner,prereqs,instruction) in PRODUCTION_TASKS.items():
+            tid=f"t_lesson_{move_id}_{stage}"
+            missing=[LABELS.get(key,key) for key in prereqs if not state["checks"].get(key)]
+            status="blocked" if missing else "ready"
+            reason="等待："+"、".join(missing) if missing else None
+            context={"lesson_id":lesson["id"],"lesson_move_id":move_id,"lesson_stage":stage,
+                     "owner_role":owner,"required_for_publish":stage in ESSENTIAL}
+            c.execute("""INSERT OR IGNORE INTO tasks
+              (id,project_id,workflow_id,title,why,assignee_id,priority,due_at,status,context,input_assets,
+               instructions,ai_prepared,deliverable_contract,qc_contract,budget_cap,character_lock,motion_lock,
+               founder_required,blocked_reason,created_at,updated_at,created_by)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+              (tid,"wuxiang","WF-02",f"{move_name} · {LABELS.get(stage,stage)}",
+               instruction,None,2,None,status,store.dumps(context),"[]",store.dumps([instruction]),
+               store.dumps({"source":"lesson_pipeline","next_step":instruction}),
+               store.dumps({"required":"对应教学包资产、审核记录或可追溯交付物"}),
+               store.dumps({"criteria":["对应真实资产与教学包关联","岗位验收记录可追溯"]}),
+               0,None,None,0,reason,store.now(),store.now(),user["id"]))
+            c.execute("INSERT OR IGNORE INTO martial_lesson_task_links(lesson_id,stage,task_id,created_at) VALUES(?,?,?,?)",
+                      (lesson["id"],stage,tid,store.now()))
+        store.audit(c,user["id"],"lesson.tasks.ensure",None,{"lesson_id":lesson["id"]})
+        return _task_rows(c,lesson,state)
+
+
+def task_pool(user: dict) -> list[dict]:
+    if user["role"] not in {"founder","manager","employee"}:raise PermissionError("没有岗位任务权限")
+    with store.connect() as c:
+        output=[]
+        for row in c.execute("SELECT * FROM martial_lesson_packages ORDER BY updated_at DESC"):
+            lesson=dict(row)
+            state=_check(c,lesson)
+            tasks=_task_rows(c,lesson,state)
+            if user["role"]=="employee":
+                tasks=[t for t in tasks if t["assignee_id"] in {None,user["id"]}]
+            output.extend(tasks)
+        return output
+
+
+def claim_task(user: dict, task_id: str) -> dict:
+    if user["role"]!="employee":raise PermissionError("只有员工可领取岗位任务")
+    with store.connect() as c:
+        row=c.execute("""SELECT l.lesson_id,l.stage,p.move_id,t.status,t.assignee_id
+          FROM martial_lesson_task_links l JOIN martial_lesson_packages p ON p.id=l.lesson_id
+          JOIN tasks t ON t.id=l.task_id WHERE l.task_id=?""",(task_id,)).fetchone()
+        if not row:raise KeyError(task_id)
+        if row["assignee_id"] or row["status"] not in {"blocked","ready"}:
+            raise ValueError("该任务已被领取或进入验收")
+        if row["stage"] in {"motion_source","motion_review"} and not martial.specialty(user):
+            raise PermissionError("真人动作及动作专业验收只能由武术岗位领取")
+        lesson=_ensure(c,row["move_id"])
+        state=_check(c,lesson)
+        missing=[LABELS.get(key,key) for key in PRODUCTION_TASKS[row["stage"]][1]
+                 if not state["checks"].get(key)]
+        if missing:raise ValueError("仍需等待："+"、".join(missing))
+        changed=c.execute("""UPDATE tasks SET assignee_id=?,status='assigned',blocked_reason=NULL,updated_at=?
+          WHERE id=? AND assignee_id IS NULL AND status IN ('blocked','ready')""",
+          (user["id"],store.now(),task_id))
+        if changed.rowcount!=1:raise ValueError("任务刚刚已被其他同事领取")
+        store.audit(c,user["id"],"lesson.task.claim",task_id,{"lesson_id":lesson["id"],"stage":row["stage"]})
+        return {"task_id":task_id,"lesson_id":lesson["id"],"stage":row["stage"],"status":"assigned"}
+
+
+def log_work(user: dict, move_id: str, data: dict) -> dict:
+    _allow_lesson(user,True)
+    stage=str(data.get("stage") or "")
+    if stage not in {"shooting","art","editing","qa"}:raise ValueError("工作记录阶段无效")
+    try:minutes=float(data.get("minutes"))
+    except (TypeError,ValueError):raise ValueError("请填写实际工作分钟数")
+    note=str(data.get("note") or "").strip()
+    if not 0<minutes<=1440 or not 4<=len(note)<=500:raise ValueError("工作时长或说明无效")
+    with store.connect() as c:
+        lesson=_ensure(c,move_id)
+        if stage=="shooting" and user["role"]=="employee" and not martial.specialty(user):
+            raise PermissionError("拍摄记录由武术岗位填写")
+        wid="lw_"+secrets.token_hex(8)
+        c.execute("INSERT INTO martial_lesson_work_logs(id,lesson_id,stage,minutes,note,actor_id,created_at) VALUES(?,?,?,?,?,?,?)",
+                  (wid,lesson["id"],stage,minutes,note,user["id"],store.now()))
+        store.audit(c,user["id"],"lesson.work.log",None,{"lesson_id":lesson["id"],"stage":stage,"minutes":minutes})
+    return detail(user,move_id)
+
+
+def require_stage_ready(move_id: str, stage: str) -> None:
+    if stage not in PRODUCTION_TASKS:raise ValueError("未知教学岗位阶段")
+    with store.connect() as c:
+        lesson=_ensure(c,move_id)
+        state=_check(c,lesson)
+        if not state["checks"].get(stage):
+            raise ValueError("教学包中的"+LABELS.get(stage,stage)+"尚未实际具备，不能验收任务")
+
+
+def _metrics(c, lesson: dict) -> dict:
+    move_id=lesson["move_id"]
+    jobs=[dict(row) for row in c.execute("SELECT id,asset_type,actual_cost,provider_job_id FROM martial_media_jobs WHERE move_id=?",(move_id,))
+          if not martial_product.historical(c,"media_job",row["id"])]
+    actual_jobs=[job for job in jobs if job["actual_cost"] is not None]
+    linked_task_ids=[r[0] for r in c.execute("SELECT task_id FROM martial_lesson_task_links WHERE lesson_id=?",(lesson["id"],))]
+    main_task=c.execute("SELECT task_id FROM martial_moves WHERE id=?",(move_id,)).fetchone()[0]
+    if main_task:linked_task_ids.append(main_task)
+    known_provider_ids={job["provider_job_id"] for job in jobs if job["provider_job_id"]}
+    other_costs=[dict(row) for row in c.execute("SELECT task_id,provider_job_id,actual_cost FROM costs WHERE actual_cost IS NOT NULL")
+                 if row["task_id"] in linked_task_ids and row["provider_job_id"] not in known_provider_ids]
+    actual_cost=sum(job["actual_cost"] for job in actual_jobs)+sum(row["actual_cost"] for row in other_costs)
+    current_job_ids={job["id"] for job in jobs}
+    reviews=sum(row[0] in current_job_ids for row in c.execute("SELECT media_job_id FROM martial_qc WHERE move_id=? AND stage='martial'",(move_id,)))
+    bindings={r[0]:r[1] for r in c.execute("SELECT role,COUNT(*) FROM martial_lesson_asset_versions WHERE lesson_id=? GROUP BY role",(lesson["id"],))}
+    manual=c.execute("""SELECT COUNT(*) FROM audit WHERE actor!='u_system' AND
+      (task_id IN (SELECT task_id FROM martial_lesson_task_links WHERE lesson_id=?)
+       OR task_id=? OR json_extract(data,'$.lesson_id')=?)""",(lesson["id"],main_task,lesson["id"])).fetchone()[0]
+    return {"shooting_minutes":c.execute("SELECT COALESCE(SUM(minutes),0) FROM martial_lesson_work_logs WHERE lesson_id=? AND stage='shooting'",(lesson["id"],)).fetchone()[0],
+            "motion_replication_attempts":sum(job["asset_type"]=="teaching" for job in jobs),
+            "motion_reviews":reviews,
+            "art_versions":sum(bindings.get(role,0) for role in ("background","scene","teacher_model")),
+            "tts_versions":bindings.get("instruction_voice",0),"video_generations":len(jobs),
+            "compositions":c.execute("SELECT COUNT(*) FROM martial_lesson_compositions WHERE lesson_id=?",(lesson["id"],)).fetchone()[0],
+            "audiovisual_reviews":c.execute("SELECT COUNT(*) FROM martial_lesson_reviews WHERE lesson_id=?",(lesson["id"],)).fetchone()[0],
+            "approved_at":lesson["approved_at"],"api_actual_cny":round(actual_cost,4),
+            "api_cost_unverified_jobs":len(jobs)-len(actual_jobs),
+            "historical_jobs_excluded":c.execute("SELECT COUNT(*) FROM martial_media_jobs WHERE move_id=?",(move_id,)).fetchone()[0]-len(jobs),
+            "human_events_recorded":manual}
+
+
 def detail(user: dict, move_id: str) -> dict:
-    martial.allow(user)
+    _allow_lesson(user)
     with store.connect() as c:
         lesson = _ensure(c, move_id)
         result = _check(c, lesson)
@@ -515,11 +789,12 @@ def detail(user: dict, move_id: str) -> dict:
                 "move_name": result["facts"].get("chinese_name") or f"第{move['ordinal']}式",
                 "dependencies": {k:v for k,v in result.items() if k != "facts"},
                 "bindings": versions, "shots": shots, "production_rules": production_rules(lesson["art_id"]),
-                "asset_roles": {k:sorted(v) for k,v in ROLES.items()}}
+                "asset_roles": {k:sorted(v) for k,v in ROLES.items()},
+                "production_tasks":_task_rows(c,lesson,result),"metrics":_metrics(c,lesson)}
 
 
 def art_dashboard(user: dict, art_id: str) -> dict:
-    martial.allow(user)
+    _allow_lesson(user)
     with store.connect() as c:
         art = c.execute("SELECT * FROM martial_arts WHERE id=?", (art_id,)).fetchone()
         if not art:raise KeyError(art_id)
@@ -542,7 +817,7 @@ def art_dashboard(user: dict, art_id: str) -> dict:
 
 
 def review(user: dict, move_id: str, data: dict) -> dict:
-    martial.allow(user)
+    _allow_lesson(user)
     if user["role"] not in {"founder", "manager"}:
         raise PermissionError("成片视听验收需负责人完成")
     if data.get("stage") != "audiovisual" or data.get("verdict") not in {"pass", "fail"}:
@@ -584,6 +859,7 @@ def _manifest(c, lesson: dict, state: dict) -> dict:
     audiovisual = state["review"]
     composition = state["composition"]
     return {"schema": "MartialArtsLessonPackage/v1", "project_id": "wuxiang",
+            "build":_build_info(),
             "lesson_id": lesson["id"], "chapter": lesson["chapter"], "art_id": lesson["art_id"],
             "art_version": art["version"], "move_id": lesson["move_id"],
             "facts": {"move_version":move["current_version"],"sha256":hashlib.sha256(facts_text.encode()).hexdigest()},
@@ -598,11 +874,15 @@ def _manifest(c, lesson: dict, state: dict) -> dict:
                       "composition_version":final["composition_version"],
                       "asset_id": final["asset_id"], "registry_asset_id":final["registry_asset_id"],
                       "media_job_id": final["media_job_id"],
+                      "video_plan_id":json.loads(composition["inputs_manifest"])["source_video"]["video_plan_id"],
+                      "video_plan_version":json.loads(composition["inputs_manifest"])["source_video"]["video_plan_version"],
                       "package_id": final["package_id"], "provider": final["provider"], "model": final["model"],
                       "prompt_hash": final["prompt_hash"], "sha256": output["sha256"] if output else None,
                       "martial_qc_id": final["martial_qc_id"],
                       "martial_qc_sha256": hashlib.sha256(store.dumps(dict(martial_review)).encode()).hexdigest() if martial_review else None},
             "shots": shots, "assets": bindings, "production_rules": production_rules(lesson["art_id"]),
+            "production_tasks":[{key:t[key] for key in ("stage","id","status","assignee_id","revision")}
+                                for t in _task_rows(c,lesson,state)],
             "audiovisual_review": {"version": audiovisual["version"], "reviewer_id": audiovisual["reviewer_id"],
                                    "sha256": hashlib.sha256((audiovisual["evidence"]+audiovisual["notes"]).encode()).hexdigest()},
             "placeholders": [k for k in ("narrative_voice", "bgm", "sfx", "subtitle")
@@ -638,7 +918,7 @@ def _verify_manifest_files(c, manifest: dict) -> None:
 
 
 def approve(user: dict, move_id: str) -> dict:
-    martial.allow(user)
+    _allow_lesson(user)
     if user["role"] not in {"founder", "manager"}:
         raise PermissionError("正式教学包需负责人批准")
     with store.connect() as c:
@@ -646,7 +926,12 @@ def approve(user: dict, move_id: str) -> dict:
         state = _check(c,lesson)
         missing = [LABELS[k] for k in ESSENTIAL if not state["checks"][k]]
         if missing:raise ValueError("不能批准；缺少：" + "、".join(missing))
+        open_tasks=[t["label"] for t in _task_rows(c,lesson,state)
+                    if t["stage"] in ESSENTIAL and t["status"]!="accepted"]
+        if open_tasks:raise ValueError("岗位任务尚未人工验收："+"、".join(open_tasks))
         manifest = _manifest(c,lesson,state)
+        if not re.fullmatch(r"[0-9a-f]{40}",str(manifest["build"]["git_commit"])) or (BUILD_PROVENANCE.is_file() and manifest["build"]["dirty"]):
+            raise ValueError("正式输出缺少可追溯的干净 Git 构建版本")
         _verify_manifest_files(c,manifest)
         body = json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(",",":"))
         sha = hashlib.sha256(body.encode()).hexdigest()
@@ -662,13 +947,15 @@ def approve(user: dict, move_id: str) -> dict:
 
 
 def publish(user: dict, move_id: str) -> dict:
-    martial.allow(user)
+    _allow_lesson(user)
     if user["role"] not in {"founder", "manager"}:raise PermissionError("发布需负责人确认")
     with store.connect() as c:
         lesson = _ensure(c,move_id)
         if not lesson["approved_sha256"]:raise ValueError("教学包尚未批准")
         state = _check(c,lesson)
         if not all(state["checks"][key] for key in ESSENTIAL):raise ValueError("批准后资产已变化，请重新验收")
+        if any(t["stage"] in ESSENTIAL and t["status"]!="accepted" for t in _task_rows(c,lesson,state)):
+            raise ValueError("发布前仍有必需岗位任务未验收")
         current = _manifest(c,lesson,state)
         _verify_manifest_files(c,current)
         sha = hashlib.sha256(json.dumps(current,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()).hexdigest()

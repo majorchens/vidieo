@@ -4,6 +4,14 @@
 
 本实现沿用 Work OS 的功法字典、老师 Character、真人动作参考、视频计划、Runy Seedance 作业、候选、武术 QC、AI Asset Center 与员工权限。`app/lesson_pipeline.py`负责教学包依赖、整式/镜头素材版本、成片人工复核及批准发布。没有替换原视频流程或启动 Creative Lab 批次。WF-01 仍是武学制作工作流；新教学包把 WF-01 已完成的事实与视频结果组合成产品内容。
 
+## Production Validation：真人岗位任务
+
+《流云掌第一式》在服务器启动时幂等登记 14 项真实 Work OS 任务；新功法由负责人在教学包点击“建立或核对岗位任务”。它们复用现有任务分派、员工提交、技术检查、人工复核和返修记录。员工从“功法生产任务”领取 Ready 任务；Waiting 逐项说明前置缺项。真人动作上传/确认和动作专业 Review 仅武术岗位可领取；美术、运营、制作岗位领取对应交付任务并在教学包绑定实际资产。负责人也可在现有任务页指派。已领取任务进入“我的任务”，可提交文件或可追溯交付物、人工复核；必需阶段对应的真实资产未具备时，人工复核不能判通过。所有必需岗位任务验收完成后，教学包才可批准。OS/BGM/SFX/字幕可以在正式教学包中显式占位，但不能伪称已有音轨。
+
+看板并列显示任务状态 Ready / Waiting / Blocked / Review / Approved、负责人、缺项和实际资产状态。人工任务验收与资产门槛是两个独立事实；提交一个文件不会自动使动作、老师或成片通过。任务通过时锁定本阶段资产与审核指纹；随后换版会自动转为返修待验收。武术 QC 问题区间保存起止时间、招式 ID、身体部位、类型、严重度、问题和具体返修意见；失败会生成基于原候选及原标准动作的返修包，新候选保留旧版和 Review 记录。没有已确认真人 Motion REF、当前老师和专业 QC 时，生产线不会提交付费生成或升级历史样片。
+
+本式计量显示已登记真人拍摄分钟数、动作复刻与视频作业、武术 Review、美术/教学语音版本、合成与成片 QA 次数、批准时间、已取得的 API 实扣及缺账单作业数、人工作业事件数。技术历史作业从正式制作次数中排除；未登记人时和未返回的实扣不推测。负责人可据此做单片复盘，目前不做 BI。
+
 Creative Lab 的本地实验文件经选择后，用 `scripts/import_creative_lab_asset.py`通过 Work OS 登录上传到同一个云端 Asset Center，记录实验编号、原相对路径和 SHA-256；重复导入同源同哈希文件会复用登记。导入仅产生实验素材，正式教学包拒绝绑定未复核的实验资产。负责人审查 Learning Review 并记录具体依据后可单独批准该资产进入正式制作。实验结论还须明确适用范围和反例、人工确认后，才写入 Git 中 `app/production_rules.json`，并把对应 Prompt/Workflow 版本绑定到正式教学包。程序只读取 `active` 且具备审查来源、审查人、证据哈希、适用条件和反例的规则，批准 Manifest 锁定实际使用的规则。当前规则登记为空：Batch 001 的通用“结果变化可见”结论仍是导演参考，尚无下一批作品证明其正式跨批生产效果，不等于《流云掌》标准动作已通过验证；Batch 002 不会自动晋级。本仓库不读取或更改正在运行的 Batch 002 状态。
 
 例：`python3 scripts/import_creative_lab_asset.py --username <Work OS账号> --project-id wuxiang --experiment-id W01 --source-ref 'Creative Lab/Wushu/W01/sample.jpg' --file '<本地素材路径>'`。脚本交互输入现有密码，不保存密码。负责人已有 Learning Review 结论时，可追加 `--learning-review-ref 'Creative Lab/Batch_001_Learning_Review.md' --review-notes '<实际审查依据>'`；仅导入不会自动批准或生成媒体。
@@ -13,6 +21,8 @@ Creative Lab 的本地实验文件经选择后，用 `scripts/import_creative_la
 `Martial Art → Chapter → Lesson (=当前 Move) → Shot → Asset`。一套功法的聚合入口是 `/api/martial/lesson-dashboard/{art_id}`；每一式教学包为 `/api/martial/lessons/{move_id}`。招式中文名、动作、教学话术保留在已确认的 `martial_move_versions`。一个镜头记录镜号、目的、起止状态、机位与时长，修改会生成新版本。素材可绑定到整式或镜头，`martial_lesson_asset_versions`保留每次绑定及其源 Asset Center 版本、哈希与创建人。Asset Center 支持 `lesson_id`、`shot_id` 查询。
 
 Git 存放代码、Workflow/Prompt、Schema、审查过的 Production Rule、Manifest、试跑报告、部署脚本。公司服务器 `/var/lib/yoodun-work-os/AI Production Assets/wuxiang/`存放实际图片、音频、真人参考、候选、历史样片和成片；Work OS SQLite 记录资产与批准状态。正式 Manifest 中的 `work-os://` Asset ID、角色用途、版本和 SHA-256 对应云端文件。批准后可用 `scripts/export_lesson_manifest.py --data-dir <受控数据目录> --lesson-id <教学包ID> --out manifests/<名称>.json`导出供 Git 审查；导出脚本只接受哈希完整的已批准 Manifest。不要把 SQLite、签名 URL、密钥或媒体文件提交 Git。
+
+部署包自动写入 `build_provenance.json`，正式 Output Manifest 锁定这次部署的 Git Commit、源视频的 Video Plan 版本、Prompt Hash、模型、相关资产版本及输入/输出校验和。业务操作留在 Work OS 数据库和审计中，不逐条 Git Commit；只有代码、规则、Schema、Workflow 等有意义的系统变更进入 Git。脏构建或缺少可验证 Git Commit 时拒绝正式批准。
 
 ## 员工生产顺序
 

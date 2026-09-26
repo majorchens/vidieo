@@ -125,6 +125,10 @@ def human_review(task_id: str, user: dict, verdict: str, findings: str, change_r
         task=store.record(c,"tasks",task_id)
         if task["status"]!="ai_prechecked": raise ValueError("须先完成技术检查和 AI 初检")
         delivery=store.latest_delivery(c,task_id)
+    context=store.parse(task["context"],{})
+    if verdict=="pass" and context.get("lesson_stage") and context.get("required_for_publish"):
+        import lesson_pipeline
+        lesson_pipeline.require_stage_ready(context["lesson_move_id"],context["lesson_stage"])
     store.add_qc(task_id,delivery["id"],"human",verdict,store.parse(task["qc_contract"],{}).get("criteria",[]),[findings],user["id"],method,coverage,evidence_refs or [],user["id"])
     if verdict=="fail":
         store.feedback(task_id,delivery["id"],user,"task",findings,change_request,preserve)
@@ -134,6 +138,9 @@ def human_review(task_id: str, user: dict, verdict: str, findings: str, change_r
                 store.update_task_status(c,task_id,{"ai_prechecked"},"human_review",user["id"])
             else:
                 store.update_task_status(c,task_id,{"ai_prechecked"},"accepted",user["id"])
+        if not task["founder_required"] and context.get("lesson_stage"):
+            import lesson_pipeline
+            lesson_pipeline.record_task_acceptance(task_id)
     return {"status":"revision_required" if verdict=="fail" else ("human_review" if task["founder_required"] else "accepted")}
 
 
@@ -153,6 +160,9 @@ def founder_review(task_id: str,user: dict,verdict: str,findings: str,change_req
     else:
         with store.connect() as c:
             store.update_task_status(c,task_id,{"human_review"},"accepted",user["id"])
+        if store.parse(task["context"],{}).get("lesson_stage"):
+            import lesson_pipeline
+            lesson_pipeline.record_task_acceptance(task_id)
     return {"status":"revision_required" if verdict=="fail" else "accepted"}
 
 

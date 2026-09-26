@@ -18,6 +18,7 @@ import martial
 import martial_initialization
 import martial_product
 import store
+import workflows
 
 
 class LessonPipelineTest(unittest.TestCase):
@@ -62,6 +63,45 @@ class LessonPipelineTest(unittest.TestCase):
         self.assertIn("background", item["ready_work"])
         self.assertFalse(dashboard["counts"]["video"])
         self.assertIn("武术 / 运营", [x["owner"] for x in item["missing"]])
+
+    def test_real_work_os_stage_task_claim_delivery_review_and_metrics(self):
+        art_id=store.create_user("lesson-artist","美术同事","employee","fixture-password")
+        artist={"id":art_id,"role":"employee"}
+        created=lesson_pipeline.ensure_tasks(self.manager,self.move_id)
+        self.assertEqual(len(created),len(lesson_pipeline.PRODUCTION_TASKS))
+        self.assertEqual(len(lesson_pipeline.ensure_tasks(self.manager,self.move_id)),len(created))
+        tasks={t["stage"]:t for t in lesson_pipeline.task_pool(artist)}
+        self.assertEqual(tasks["motion_mapping"]["production_status"],"Waiting")
+        with self.assertRaises(PermissionError):
+            lesson_pipeline.claim_task(artist,tasks["motion_source"]["id"])
+        with self.assertRaises(ValueError):
+            lesson_pipeline.claim_task(artist,tasks["motion_mapping"]["id"])
+        claimed=lesson_pipeline.claim_task(artist,tasks["background"]["id"])
+        self.assertEqual(claimed["status"],"assigned")
+        store.start(claimed["task_id"],artist)
+        picture=(ROOT / "tests/fixtures/wuxiang/cryn-character.jpg").read_bytes()
+        uploaded=store.register_submission_asset("wuxiang","lesson-background.jpg",picture,art_id)
+        store.add_delivery(claimed["task_id"],artist,uploaded["id"],None,None,"独立背景原图",None)
+        workflows.technical_qc(claimed["task_id"])
+        workflows.ai_skip(claimed["task_id"],self.manager,"美术资产由负责人直接检查")
+        with self.assertRaisesRegex(ValueError,"尚未实际具备"):
+            workflows.human_review(claimed["task_id"],self.manager,"pass","画面合格",
+                                   method="查看独立背景",coverage="完整画面")
+        asset_center.sync_internal()
+        with store.connect() as c:
+            reg=c.execute("SELECT asset_id FROM asset_registry_sources WHERE original_id=?",(uploaded["id"],)).fetchone()[0]
+        detail=lesson_pipeline.bind_asset(artist,self.move_id,{"role":"background","asset_id":reg})
+        self.assertTrue(detail["dependencies"]["checks"]["background"])
+        reviewed=workflows.human_review(claimed["task_id"],self.manager,"pass","已核对独立背景并关联本式",
+                                        method="查看原图和资产关系",coverage="全画面")
+        self.assertEqual(reviewed["status"],"accepted")
+        lesson_pipeline.log_work(self.employee,self.move_id,{"stage":"shooting","minutes":18.5,"note":"第一式真人动作原片拍摄"})
+        final=lesson_pipeline.detail(self.manager,self.move_id)
+        self.assertEqual(final["metrics"]["shooting_minutes"],18.5)
+        self.assertEqual(next(t for t in final["production_tasks"] if t["stage"]=="background")["production_status"],"Approved")
+        changed=self._registered_image("new-background.jpg",b"\0")
+        stale=lesson_pipeline.bind_asset(self.manager,self.move_id,{"role":"background","asset_id":changed})
+        self.assertEqual(next(t for t in stale["production_tasks"] if t["stage"]=="background")["status"],"revision_required")
 
     def test_asset_versions_remain_traceable_and_cannot_release_without_qc(self):
         first = self._registered_image("background-v1.jpg")

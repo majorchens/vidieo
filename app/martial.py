@@ -2201,9 +2201,17 @@ def martial_qc(user: dict, media_job_id: str, data: dict) -> dict:
         start=_moment_time(item.get("start"));end=_moment_time(item.get("end"))
         severity=str(item.get("severity") or "").lower()
         issue=str(item.get("issue") or "").strip()
+        move_id=str(item.get("move_id") or item.get("move") or "").strip()
+        body_part=str(item.get("body_part") or "未标注").strip()
+        issue_type=str(item.get("issue_type") or "other").strip().lower()
+        comment=str(item.get("comment") or issue).strip()
         if not 0<=start<end or end>3600 or severity not in {"minor","major","critical"} or not 1<=len(issue)<=500:
             raise ValueError("问题区间需要有效起止时间、问题及严重度")
-        issues.append({"start":round(start,3),"end":round(end,3),"issue":issue,"severity":severity})
+        if len(move_id)>100 or not 1<=len(body_part)<=80 or issue_type not in {"path","timing","pose","direction","balance","contact","framing","other"} or not 1<=len(comment)<=1000:
+            raise ValueError("问题区间的招式、身体部位、类型或意见无效")
+        issues.append({"start":round(start,3),"end":round(end,3),"move_id":move_id,
+                       "body_part":body_part,"issue_type":issue_type,"severity":severity,
+                       "issue":issue,"comment":comment})
     allowed_pass=(all(checks[key]!="fail" for key in QC_CHECKS) and
                   checks["teaching_suitability"]=="pass" and
                   not any(item["severity"] in {"major","critical"} for item in issues))
@@ -2218,6 +2226,9 @@ def martial_qc(user: dict, media_job_id: str, data: dict) -> dict:
     if not findings or not comparison:raise ValueError("需写明真人参考对照和问题结论")
     with store.connect() as c:
         job=_row(c,"martial_media_jobs",media_job_id)
+        if any(item["move_id"] and item["move_id"]!=job["move_id"] for item in issues):
+            raise ValueError("问题区间的招式与候选不一致")
+        for item in issues:item["move_id"]=job["move_id"]
         if martial_product.historical(c,"media_job",media_job_id):raise ValueError("技术历史 Candidate 不可修改 QC")
         context_error=_current_job_error(c,job)
         if context_error:raise ValueError(context_error)

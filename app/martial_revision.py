@@ -130,8 +130,11 @@ def build_revision_payload(package: dict, job: dict, qc: dict,
         if not 0 <= start < end or not issue:
             raise ValueError("Martial QC 问题区间缺少有效问题")
         target_range.append({"start": start, "end": end, "issue": issue,
+                             "move_id":item.get("move_id"),"body_part":item.get("body_part"),
+                             "issue_type":item.get("issue_type"),"comment":item.get("comment"),
                              "severity": str(item.get("severity") or "")})
-        _append_unique(fix, f"{start:.2f}–{end:.2f} 秒：{issue}")
+        detail=" · ".join(str(item.get(key) or "") for key in ("body_part","comment") if item.get(key))
+        _append_unique(fix, f"{start:.2f}–{end:.2f} 秒：{issue}"+(f"（{detail}）" if detail else ""))
 
     _append_unique(do_not_change, f"{master.get('name') or master['id']} 定版身份 V{master['version']}"
                    f"（视觉资产 {master.get('visual_asset_id') or job.get('character_asset_id')}）")

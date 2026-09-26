@@ -17,8 +17,8 @@ async function api(path,body){const opt={credentials:'same-origin'};if(body!==un
 function notice(msg,bad=false){const n=$('#notice');n.textContent=msg;n.className='notice'+(bad?' bad':'');setTimeout(()=>n.classList.add('hidden'),6500)}
 function page(title,crumb='工作台'){ $('#page-title').textContent=title;$('#breadcrumb').textContent=crumb;$('#top-actions').innerHTML=''; }
 function nav(){
-  const employee=[['today','首页'],[null,'我的工作'],['my-tasks','我的任务'],['revisions','我的返修'],['works','我的作品'],[null,'项目与素材'],['projects','项目'],['assets','素材中心']];
-  const management=[['manager:overview','首页'],[null,'管理工作'],['manager:projects','项目'],['manager:tasks','任务'],['manager:production','生产流程'],['manager:team','团队'],[null,'万象武境'],['martial:arts','功法管理'],['martial:masters','功法老师']];
+  const employee=[['today','首页'],[null,'我的工作'],['my-tasks','我的任务'],['revisions','我的返修'],['works','我的作品'],[null,'项目与素材'],['projects','项目'],['assets','素材中心'],['martial:lesson-tasks','功法生产任务']];
+  const management=[['manager:overview','首页'],[null,'管理工作'],['manager:projects','项目'],['manager:tasks','任务'],['manager:production','生产流程'],['manager:team','团队'],[null,'万象武境'],['martial:arts','功法管理'],['martial:lesson-tasks','功法生产任务'],['martial:masters','功法老师']];
   const founder=[['founder','需要我决定'],...management];
   const base=state.user.martial_specialist?window.martialWorkspace.nav:state.user.role==='employee'?employee:state.user.role==='founder'?founder:management;
   const list=[...base];
@@ -32,7 +32,7 @@ const EAttr=esc;
 function shell(){ $('#login').classList.add('hidden');$('#shell').classList.remove('hidden');$('#display-name').textContent=state.user.display_name;$('#role-name').textContent=roles[state.user.role];$('#avatar').textContent=state.user.display_name.slice(0,1);nav() }
 function showLogin(){ $('#login').classList.remove('hidden');$('#shell').classList.add('hidden') }
 function routeIsCurrent(version){return version===state.routeVersion}
-function routeTitle(view){if(view.startsWith('martial:lesson:'))return '功法教学包';if(view.startsWith('martial:move:'))return '招式详情';if(view.startsWith('martial:art:'))return '功法详情';if(view.startsWith('martial:master:'))return '功法老师';if(view.startsWith('ai:'))return view==='ai:history'?'创作记录':'AI 创作';return ({today:'首页','my-tasks':'我的任务',revisions:'我的返修',works:'我的作品',projects:'我的项目',assets:'素材中心','martial:overview':'首页','martial:today':'首页','martial:tasks':'我的任务','martial:revisions':'我的返修','martial:arts':'功法管理','martial:masters':'功法老师','martial:assets':'素材中心'})[view]||'正在打开'}
+function routeTitle(view){if(view==='martial:lesson-tasks')return '功法生产任务';if(view.startsWith('martial:lesson:'))return '功法教学包';if(view.startsWith('martial:move:'))return '招式详情';if(view.startsWith('martial:art:'))return '功法详情';if(view.startsWith('martial:master:'))return '功法老师';if(view.startsWith('ai:'))return view==='ai:history'?'创作记录':'AI 创作';return ({today:'首页','my-tasks':'我的任务',revisions:'我的返修',works:'我的作品',projects:'我的项目',assets:'素材中心','martial:overview':'首页','martial:today':'首页','martial:tasks':'我的任务','martial:revisions':'我的返修','martial:arts':'功法管理','martial:masters':'功法老师','martial:assets':'素材中心'})[view]||'正在打开'}
 function showRouteShell(view){page(routeTitle(view));const content=$('#content');content.setAttribute('aria-busy','true');content.innerHTML='<div class="route-shell" role="status" aria-label="正在加载页面"><div class="route-shell-line route-shell-title"></div><div class="route-shell-line route-shell-subtitle"></div><div class="route-shell-grid"><div class="route-shell-card"></div><div class="route-shell-card"></div><div class="route-shell-card"></div></div></div>'}
 function go(view){
   if(state.user)state.scrollPositions.set(state.view,window.scrollY);

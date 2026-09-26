@@ -145,9 +145,16 @@ class MartialTest(unittest.TestCase):
             "issue_ranges":[{"start":1,"end":2,"issue":"手部路径错误","severity":"major"}],
             "findings":"有动作错误","reference_comparison":"逐段对照"})
         failed=m.martial_qc(self.x,jid,{"verdict":"fail","checks":checks|{"hand_path":"fail"},
-            "issue_ranges":[{"start":"00:01.00","end":"00:02.00","issue":"手部路径错误","severity":"major"}],
+            "issue_ranges":[{"start":"00:01.00","end":"00:02.00","move_id":mid,
+                             "body_part":"左掌","issue_type":"path","issue":"手部路径错误",
+                             "severity":"major","comment":"按真人参考降低左掌托举高度"}],
             "findings":"动作路径错误","reference_comparison":"逐段对照 1 至 2 秒"})
         self.assertEqual(failed["status"],"revision_required")
+        self.assertEqual(failed["issue_ranges"][0]["body_part"],"左掌")
+        with s.connect() as c:
+            payload=s.parse(c.execute("SELECT payload FROM martial_revision_packages WHERE id=?",
+                                      (failed["revision_package_id"],)).fetchone()[0],{})
+        self.assertEqual(payload["target_range"][0]["comment"],"按真人参考降低左掌托举高度")
         with self.assertRaises(ValueError):m.finalize(self.manager,jid)
         m.update_budget(self.manager,mid,12)
         bad_job=m.create_media(self.x,mid,{"generation_mode":"preview","asset_type":"teaching","model":"sd2.5"})[0]
