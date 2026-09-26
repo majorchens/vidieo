@@ -627,7 +627,8 @@ def _task_rows(c, lesson: dict, state: dict) -> list[dict]:
                      "label":LABELS.get(item["stage"],item["stage"]),"owner_role":owner,
                      "asset_ready":bool(state["checks"].get(item["stage"])),
                      "waiting_for":missing,
-                     "production_status":("Approved" if item["status"]=="accepted" and state["checks"].get(item["stage"])
+                     "placeholder_approved":bool(item["status"]=="accepted" and item["stage"] not in ESSENTIAL and not state["checks"].get(item["stage"])),
+                     "production_status":("Approved" if item["status"]=="accepted" and (state["checks"].get(item["stage"]) or item["stage"] not in ESSENTIAL)
                        else "Review" if item["status"] in {"submitted","technical_checked","ai_prechecked","human_review"}
                        else "Blocked" if item["status"] in {"revision_required","failed","unknown_submission"}
                        else "Waiting" if missing else "Ready")})
