@@ -196,7 +196,8 @@ def initialize():
             "martial_packages": {"requested_by":"TEXT"},
             "martial_media_jobs": {"generation_mode":"TEXT", "video_plan_id":"TEXT REFERENCES martial_video_plans(id)",
                                    "segments_json":"TEXT NOT NULL DEFAULT '[]'", "segment_progress":"TEXT NOT NULL DEFAULT '[]'",
-                                   "edit_refs_json":"TEXT NOT NULL DEFAULT '{}'"},
+                                   "edit_refs_json":"TEXT NOT NULL DEFAULT '{}'",
+                                   "background_ref_json":"TEXT NOT NULL DEFAULT '{}'"},
             "martial_qc": {"checks":"TEXT NOT NULL DEFAULT '{}'", "issue_ranges":"TEXT NOT NULL DEFAULT '[]'",
                            "major_dispute":"INTEGER NOT NULL DEFAULT 0"},
         }.items():
@@ -688,6 +689,7 @@ def move_detail(move_id: str, user: dict) -> dict:
             m["technical_report"]=store.parse(m["technical_report"],{})
             m["segments"]=store.parse(m.pop("segments_json",None),[])
             m["edit_refs"]=store.parse(m.pop("edit_refs_json",None),{})
+            m["background_ref"]=store.parse(m.pop("background_ref_json",None),{})
             m["segment_progress"]=store.parse(m["segment_progress"],[])
             m.pop("prompt",None)  # a production prompt is shown through the approved package
             if user["role"]=="employee":
@@ -1782,6 +1784,28 @@ def _reference_aspect_ratio(ref: dict | None) -> str:
     return "9:16" if width/height<0.8 else "1:1" if width/height<1.2 else "16:9"
 
 
+def _art_background_ref(c, art_id: str) -> dict | None:
+    """Resolve the art's current static background without substituting pilot assets."""
+    if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='martial_mm_asset_links'").fetchone():
+        return None
+    row=c.execute("""SELECT l.version,l.asset_id,a.name,a.type,a.status,a.project_id,
+                    a.storage_ref,a.sha256 FROM martial_mm_asset_links l
+                    JOIN assets a ON a.id=l.asset_id
+                    WHERE l.scope='art' AND l.scope_id=? AND l.role='background'
+                      AND l.status='active'""",(art_id,)).fetchone()
+    if not row:return None
+    item=dict(row)
+    path=Path(item["storage_ref"])
+    try:
+        with path.open("rb") as stream:header=stream.read(256)
+        valid=(item["project_id"]=="wuxiang" and item["type"]=="image" and item["status"]=="active"
+               and _image_header_ok(header,path.suffix.lower()) and store.digest_file(path)==item["sha256"])
+    except OSError:valid=False
+    if not valid:raise ValueError("功法练功背景图片不可用或校验值不符，请在功法管理核对版本")
+    return {"asset_id":item["asset_id"],"version":item["version"],"name":item["name"],
+            "sha256":item["sha256"],"source":"art_background"}
+
+
 def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="preview", asset_type="teaching", cut_points="") -> dict:
     allow(user)
     if model_alias not in PRICE:raise ValueError("该业务模型暂无已验证报价")
@@ -1792,6 +1816,11 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
     with store.connect() as c:
         move=_row(c,"martial_moves",move_id)
         if not martial_product.current_move(c,move_id):raise ValueError("该招式不在当前生产范围")
+        background=None; background_error=None
+        if generation_mode!="edit_trial":
+            try:background=_art_background_ref(c,move["martial_art_id"])
+            except ValueError as exc:background_error=str(exc)
+            if not background and not background_error:background_error="请先在功法管理上传本功法练功背景图片"
         usable_task=move["task_id"] and not martial_product.historical(c,"task",move["task_id"])
         remaining,budget=_remaining(c,move["task_id"]) if usable_task else (0,0)
         budget_unlimited=bool(usable_task and _budget_unlimited(c,move["task_id"]))
@@ -1825,7 +1854,9 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
                     "selected_end":selected_end,"selected_duration":selected_duration,
                     "asset_type":asset_type,"source_start":selected_start,"source_end":selected_end,
                     "target_duration":plan["target_duration"] if plan else None,
-                    "video_plan_version":plan["version"] if plan else None}
+                    "video_plan_version":plan["version"] if plan else None,
+                    "background_name":background["name"] if background else None,
+                    "background_version":background["version"] if background else None}
     if generation_mode in {"complete","edit_trial"}:
         segment_error=None;segments=[]
         if plan:
@@ -1838,7 +1869,8 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
         priced=route and route["provider"]=="runy" and route["model"]==PRICE[model_alias]["model"]
         if model_alias!="sd2.5":priced=False
         cost=sum(s["reserved_cost"] for s in segments)*count if priced and segments else None
-        reason=(lock_error or ("请先保存该视频的独立制作规划" if not plan else None) or
+        reason=(lock_error or (background_error if generation_mode=="complete" else None) or
+                ("请先保存该视频的独立制作规划" if not plan else None) or
                 package_error or segment_error or
                 ("当前润元 Seedance 2.5 路由未核验" if not priced else None) or
                 ("任务预算不足，请负责人先调整预算" if cost is not None and remaining is not None and cost>remaining else None))
@@ -1890,8 +1922,8 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
     return {"generation_mode":generation_mode,"model_alias":model_alias,"duration":5,"resolution":"480p",
             "aspect_ratio":aspect_ratio,"candidate_count":count,"estimated_cost":cost,"task_budget":budget,
             "remaining_budget":remaining,"budget_unlimited":budget_unlimited,
-            "blocked":bool(preview_error or lock_error or package_error or not plan) or cost is None or (remaining is not None and cost>remaining),
-            "block_reason":preview_error or lock_error or ("请先保存该视频的独立制作规划" if not plan else None) or package_error or (None if cost is not None and (remaining is None or cost<=remaining) else "价格或路由未核验" if cost is None else "预算不足"),
+            "blocked":bool(preview_error or lock_error or background_error or package_error or not plan) or cost is None or (remaining is not None and cost>remaining),
+            "block_reason":preview_error or lock_error or background_error or ("请先保存该视频的独立制作规划" if not plan else None) or package_error or (None if cost is not None and (remaining is None or cost<=remaining) else "价格或路由未核验" if cost is None else "预算不足"),
             "price_source":PRICE_SOURCE if cost is not None else None,
             "scope":"仅生成 5 秒样片，不是讲解演示或跟练正式视频",**reference_info}
 
@@ -1940,6 +1972,8 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
         if not suggestion:raise ValueError("AI 生产包没有生成提示词")
         full=generation_mode in {"complete","edit_trial"}
         edit_trial=generation_mode=="edit_trial"
+        background=None if edit_trial else _art_background_ref(c,art["id"])
+        if not edit_trial and not background:raise ValueError("请先在功法管理上传本功法练功背景图片")
         edit_refs=_edit_trial_refs(c,move_id) if edit_trial else {}
         prompt=(("编辑视频 1，只替换人物与背景；" if edit_trial else "")+
                 f"《{art['chinese_name']}·{mv['payload']['chinese_name']}》"
@@ -1948,7 +1982,11 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
                   "图片 2 是不含人物的同场景纯背景。保留图片 1 的角色身份、服装与场景布局，"
                   "用图片 2 替换真人视频中的原背景；全程保持同一角色和武术场景。"
                   if edit_trial else
-                  f"图片 1 仅用于数字老师 {master['name']} V{mm['version']} 的身份、外观和服装；")+
+                  f"图片 1 仅用于数字老师 {master['name']} V{mm['version']} 的身份、外观和服装；"
+                  f"图片 2 是本功法练功背景 V{background['version']} 的静态原图。以图片 2 锁定练功场的建筑、"
+                  "地面、山石、树木、空间布局、色彩和光照方向；不要替换为其他武术场景。"
+                  "只让原图已有的流云或薄雾在远景缓慢、连续、轻微地浮动，光影可有细微自然变化；"
+                  "建筑、地面和树木保持稳定，不要整张背景平移、缩放、扭曲，也不要新增抢眼特效。")+
                 "视频 1 是唯一的动作与时序参考。逐时刻保留视频 1 中双手轨迹、双脚落点、朝向、"
                 "重心、速度、停顿、起止姿态和完整身体取景。只替换人物外观，不新增动作、换边、"
                 "改拍或改变节奏。固定全身机位，保持手脚无遮挡。"
@@ -2002,6 +2040,9 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
                        (hashlib.sha256((prompt+store.dumps(segments)).encode()).hexdigest() if edit_trial else prompt_hash),
                        prompt,visual,duration,estimate["aspect_ratio"],"480p","queued",key,key,reservation,quote_source,
                        revision_of,generation_mode,plan["id"],store.dumps(segments),store.dumps(edit_refs),stamp,stamp))
+            if background:
+                c.execute("UPDATE martial_media_jobs SET background_ref_json=? WHERE id=?",
+                          (store.dumps(background),jid))
             created.append(jid)
         store.audit(c,user["id"],"martial.media.queue",task["id"],{"media_job_ids":created,"reserved_cost":estimate["estimated_cost"]})
         return [{"id":jid,"status":"queued","model_alias":alias,"asset_type":asset_type,
@@ -2123,6 +2164,14 @@ def media_claim(job_id: str) -> dict:
         asset=store.record(c,"assets",ref["video_asset_id"])
         segments=store.parse(job["segments_json"],[])
         edit_refs=store.parse(job["edit_refs_json"],{}) if job["generation_mode"]=="edit_trial" else {}
+        background_ref=store.parse(job["background_ref_json"],{})
+        if background_ref:
+            background_asset=store.record(c,"assets",background_ref["asset_id"])
+            background_path=Path(background_asset["storage_ref"])
+            if (background_asset["type"]!="image" or background_asset["status"]!="active" or
+                background_asset["sha256"]!=background_ref["sha256"] or
+                not background_path.is_file() or store.digest_file(background_path)!=background_ref["sha256"]):
+                raise ValueError("视频作业锁定的练功背景图片不可用，不能提交生成")
         if job["generation_mode"]=="edit_trial":
             if set(edit_refs)!={"pilot_scene","pilot_background"}:
                 raise ValueError("视频编辑任务缺少锁定的试拍图版本")
@@ -2149,9 +2198,11 @@ def media_claim(job_id: str) -> dict:
                 "reference_expires_at":expires,
                 "reference_source_url":source_url(ref["video_asset_id"],expires),
                 "reference_sha256":asset["sha256"],
+                "background_ref":background_ref,
                 "image_urls":([source_url(edit_refs[role]["asset_id"],expires)
                                for role in ("pilot_scene","pilot_background")] if edit_refs else
-                              [source_url(job["character_asset_id"],expires)]),
+                              [source_url(job["character_asset_id"],expires)]+
+                              ([source_url(background_ref["asset_id"],expires)] if background_ref else [])),
                 "video_urls":[] if job["generation_mode"] in {"complete","edit_trial"} else [source_url(ref["video_asset_id"],expires)],
                 "local_job_id":job["local_job_id"],"local_media_id":job["local_media_id"]}
 

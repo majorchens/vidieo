@@ -16,13 +16,13 @@ sys.path.insert(0,str(ROOT/"app"))
 class MartialTest(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        import store,martial
+        import store,martial,martial_multimodal_assets,asset_center
         self.s=store;self.m=martial
         store.DATA=Path(self.temp.name);store.DB=store.DATA/"work_os.sqlite3"
         root=store.DATA/"project";root.mkdir()
         store.PROJECT_ROOTS["wuxiang"]=root
         store.SHARED_ROOT=store.DATA/"shared";store.SHARED_ROOT.mkdir()
-        store.initialize();martial.initialize()
+        store.initialize();martial.initialize();martial_multimodal_assets.initialize();asset_center.initialize()
         specialist=store.create_user("xia","夏润麒","employee","specialist-password-test")
         other=store.create_user("other","其他员工","employee","employee-password-test")
         manager=store.create_user("manager","负责人","manager","manager-password-test")
@@ -33,6 +33,9 @@ class MartialTest(unittest.TestCase):
         os.environ["YOODUN_CONNECTOR_TOKEN"]="test-signing-token"
         martial.route_report([{"model_alias":"sd2.0","provider":"runy","model":"doubao-seedance-2.0"},
                               {"model_alias":"sd2.5","provider":"runy","model":"doubao-seedance-2-5"}])
+        image=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-character.jpg").read_bytes()
+        martial_multimodal_assets.upload_art_background(self.manager,"flowing_cloud",
+            {"upload":self.upload("training-ground.jpg",image+b"\x02")})
 
     def tearDown(self):
         os.environ.pop("YOODUN_CONNECTOR_TOKEN",None)

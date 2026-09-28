@@ -18,6 +18,7 @@ sys.path.insert(0,str(ROOT/"app"))
 import martial
 import martial_connector
 import martial_initialization
+import martial_multimodal_assets
 import asset_center
 import lesson_pipeline
 import server
@@ -31,7 +32,7 @@ class ReferenceReproductionTest(unittest.TestCase):
         root=store.DATA/"project";root.mkdir()
         store.PROJECT_ROOTS["wuxiang"]=root
         store.SHARED_ROOT=store.DATA/"shared";store.SHARED_ROOT.mkdir()
-        store.initialize();martial.initialize()
+        store.initialize();martial.initialize();martial_multimodal_assets.initialize();asset_center.initialize()
         employee=store.create_user("xia","夏润麒","employee","fixture-password")
         manager=store.create_user("manager","负责人","manager","fixture-password")
         self.employee={"id":employee,"role":"employee"}
@@ -43,6 +44,8 @@ class ReferenceReproductionTest(unittest.TestCase):
         martial_initialization.initialize_confirmed_import()
         martial.route_report([{"model_alias":"sd2.5","provider":"runy","model":"doubao-seedance-2-5"}])
         image=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-character.jpg").read_bytes()
+        martial_multimodal_assets.upload_art_background(self.manager,"beginner",
+            {"upload":self.upload("training-ground.jpg",image+b"\x01")})
         martial.upload_master_asset(self.employee,"pongda",{"field":"portrait","upload":self.upload("teacher.jpg",image)})
         martial.approve_master(self.manager,"pongda")
         video=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-bagua-part01.mp4").read_bytes()
@@ -72,6 +75,48 @@ class ReferenceReproductionTest(unittest.TestCase):
                 "teaching_prompt":prompt,"practice_prompt":"独立跟练："+prompt,
                 "negative_constraints":[],"reference_mapping":[],"qc_checklist":[],
                 "missing_inputs":[],"facts":{},"ai_suggestions":[]}
+
+    def test_formal_generation_uses_pinned_art_background_and_cloud_motion_prompt(self):
+        martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",
+            "source_start":0,"source_end":15,"target_duration":15,"brief":"与真人原片等长"})
+        package=martial.request_package(self.employee,self.move_id)
+        ready=martial.package_report(package["id"],{"status":"complete","body":self.body("按真人动作示范")})
+        store.start(ready["task_id"],self.employee)
+        martial.update_budget(self.manager,self.move_id,"unlimited")
+        priced=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","teaching")
+        self.assertEqual((priced["background_name"],priced["background_version"]),("training-ground.jpg",1))
+        job=martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
+            "asset_type":"teaching","model":"sd2.5"})[0]
+        with store.connect() as c:
+            saved=c.execute("SELECT prompt,background_ref_json FROM martial_media_jobs WHERE id=?",(job["id"],)).fetchone()
+        locked=store.parse(saved["background_ref_json"],{})
+        self.assertIn("图片 2 是本功法练功背景 V1",saved["prompt"])
+        self.assertIn("流云或薄雾在远景缓慢",saved["prompt"])
+        self.assertIn("建筑、地面和树木保持稳定",saved["prompt"])
+        image=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-character.jpg").read_bytes()
+        newer=martial_multimodal_assets.upload_art_background(self.manager,"beginner",
+            {"upload":self.upload("training-ground-v2.jpg",image+b"\x03")})["assets"]["background"]
+        self.assertEqual(newer["version"],2)
+        claimed=martial.media_claim(job["id"])
+        self.assertEqual(claimed["background_ref"],locked)
+        self.assertEqual(len(claimed["image_urls"]),2)
+        self.assertEqual(len(martial_connector._media_segments(claimed)),1)
+        self.assertIn(locked["asset_id"],claimed["image_urls"][1])
+        self.assertNotIn(newer["asset_id"],claimed["image_urls"][1])
+
+    def test_missing_art_background_blocks_new_formal_job(self):
+        martial_multimodal_assets.set_art_asset(self.manager,"beginner",{"role":"background","asset_id":None})
+        package=martial.request_package(self.employee,self.move_id)
+        ready=martial.package_report(package["id"],{"status":"complete","body":self.body("按真人动作示范")})
+        store.start(ready["task_id"],self.employee)
+        result=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","teaching")
+        self.assertTrue(result["blocked"])
+        self.assertIn("上传本功法练功背景",result["block_reason"])
+        with self.assertRaisesRegex(ValueError,"练功背景"):
+            martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
+                "asset_type":"teaching","model":"sd2.5"})
+        with store.connect() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM martial_media_jobs").fetchone()[0],0)
 
     def test_separate_teaching_and_practice_uploads_reach_ai_preparation(self):
         original_id=self.ref["id"]
