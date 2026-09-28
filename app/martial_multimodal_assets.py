@@ -7,6 +7,7 @@ authority for motion locks and formally finalized videos.
 """
 from __future__ import annotations
 
+import base64
 import secrets
 from pathlib import Path
 
@@ -15,7 +16,7 @@ import store
 
 SCRIPT_KINDS=("intro","instruction","practice","breathing","success")
 LANGUAGES=("zh","en")
-ART_ROLES={"theme_music":"audio","training_bgm":"audio","logo":"image","main_visual":"image"}
+ART_ROLES={"theme_music":"audio","training_bgm":"audio","logo":"image","main_visual":"image","background":"image"}
 MOVE_ROLES={"training_bgm":"audio","teaching_video":"video","practice_video":"video"}
 MASTER_ROLES={"intro_audio":"audio","voice_audition":"audio","voice_reference":"audio"}
 
@@ -67,6 +68,23 @@ def initialize() -> None:
 def _allow(user: dict, write: bool=False) -> None:
     import martial
     martial.allow(user,write)
+
+
+def _allow_background_write(user: dict, art_id: str) -> None:
+    if user["role"] in {"founder","manager"}:
+        return
+    import martial
+    if martial.specialty(user):
+        return
+    if user["role"]=="employee":
+        with store.connect() as c:
+            assigned=c.execute("""SELECT 1 FROM martial_lesson_task_links l
+                JOIN martial_lesson_packages p ON p.id=l.lesson_id
+                JOIN tasks t ON t.id=l.task_id
+                WHERE p.art_id=? AND l.stage='background' AND t.assignee_id=?
+                  AND t.status!='accepted' LIMIT 1""",(art_id,user["id"])).fetchone()
+        if assigned:return
+    raise PermissionError("请先领取本功法的教学背景任务")
 
 
 def _clean(value, label: str, maximum: int=5000) -> str:
@@ -154,7 +172,8 @@ def _voice_sample(c,master_id: str,role: str,suffix: str) -> dict | None:
 
 
 def _set_link(user: dict,scope: str,item_id: str,role: str,asset_id: str | None,expected: str,source: str) -> None:
-    _allow(user,True)
+    if scope=="art" and role=="background":_allow_background_write(user,item_id)
+    else:_allow(user,True)
     with store.connect() as c:
         _scope(c,scope,item_id)
         if asset_id:_asset(c,asset_id,expected)
@@ -173,6 +192,31 @@ def set_art_asset(user: dict,art_id: str,data: dict) -> dict:
     if role not in ART_ROLES:raise ValueError("功法资产用途无效")
     asset_id=data.get("asset_id") or None
     _set_link(user,"art",art_id,role,asset_id,ART_ROLES[role],_source(data))
+    if role=="background":
+        import asset_center
+        asset_center.sync_internal()
+    return art_assets(user,art_id)
+
+
+def upload_art_background(user: dict, art_id: str, data: dict) -> dict:
+    """Keep one versioned static background per art in the shared Asset Center."""
+    _allow_background_write(user,art_id)
+    upload=data.get("upload") or {}
+    name=str(upload.get("name") or "")
+    suffix=Path(name).suffix.lower()
+    if suffix not in {".png",".jpg",".jpeg",".webp"}:
+        raise ValueError("练功背景请上传 PNG/JPG/WebP 静态图片")
+    try:content=base64.b64decode(upload["base64"],validate=True)
+    except (KeyError,ValueError,TypeError):raise ValueError("背景图片上传数据无效")
+    import martial
+    if len(content)>40_000_000 or not martial._image_header_ok(content,suffix):
+        raise ValueError("练功背景图片无效或超过 40MB")
+    source=_source(data)
+    with store.connect() as c:_scope(c,"art",art_id)
+    asset=store.register_production_asset("wuxiang","art_background",name,content,user["id"])
+    _set_link(user,"art",art_id,"background",asset["id"],"image",source)
+    import asset_center
+    asset_center.sync_internal()
     return art_assets(user,art_id)
 
 

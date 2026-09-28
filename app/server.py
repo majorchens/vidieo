@@ -612,11 +612,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(martial_product.upload_master_visual(user,master_visual.group(1),data),201);return
             if path=="/api/martial/import-asset":
                 self.send_json(martial_assets.import_asset(user,data),201);return
-            multimodal=re.fullmatch(r"/api/martial/(arts|masters|moves)/([a-z0-9_]+)/(asset|worldview|voice-persona|intro-audio|os-script|tts)",path)
+            multimodal=re.fullmatch(r"/api/martial/(arts|masters|moves)/([a-z0-9_]+)/(asset|background-upload|worldview|voice-persona|intro-audio|os-script|tts)",path)
             if multimodal:
                 scope,item_id,action=multimodal.groups()
                 dispatch={
                     ("arts","asset"):martial_multimodal_assets.set_art_asset,
+                    ("arts","background-upload"):martial_multimodal_assets.upload_art_background,
                     ("arts","worldview"):martial_multimodal_assets.set_art_worldview,
                     ("masters","voice-persona"):martial_multimodal_assets.set_master_voice_persona,
                     ("masters","intro-audio"):martial_multimodal_assets.set_master_intro_audio,

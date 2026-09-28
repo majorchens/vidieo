@@ -297,7 +297,7 @@ def _category(row: dict) -> str:
     if subtype in {"sound_effect","sfx","ui_sound"} or role in {"sound_effect","sfx","ui_sound"}:return "音效"
     if subtype=="teaching_video" or role=="teaching_video":return "教学视频"
     if subtype=="practice_video" or role=="practice_video":return "演练视频"
-    if subtype in {"scene","scene_reference"}:return "场景"
+    if subtype in {"scene","scene_reference","background"}:return "场景"
     if subtype in {"prop","prop_reference"}:return "道具"
     if subtype in {"character","master","character_reference"} or typ=="character":return "角色"
     if typ=="image" and (subtype in {"ai_result","ai_image"} or source=="work_os_ai_studio" or row.get("model")):return "AI图片"

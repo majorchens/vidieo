@@ -16,6 +16,8 @@ import martial
 import martial_initialization
 import martial_multimodal_assets as mm
 import martial_product
+import lesson_pipeline
+import asset_center
 import store
 
 
@@ -27,7 +29,7 @@ class MartialMultimodalTest(unittest.TestCase):
         store.PROJECT_ROOTS["wuxiang"]=project
         store.SHARED_ROOT=store.DATA/"shared";store.SHARED_ROOT.mkdir()
         store.initialize();martial.initialize();martial_initialization.initialize_confirmed_import()
-        martial_product.initialize_product_migration();mm.initialize();mm.initialize()
+        martial_product.initialize_product_migration();mm.initialize();asset_center.initialize()
         uid=store.create_user("mm-employee","武术员工","employee","fixture-password")
         self.employee={"id":uid,"role":"employee"}
         self.manager={"id":"u_system","role":"manager"}
@@ -54,6 +56,52 @@ class MartialMultimodalTest(unittest.TestCase):
     def tearDown(self):self.temp.cleanup()
 
     def evidence(self,result,key):return next(row for row in result["completion"]["evidence"] if row["key"]==key)
+
+    def test_art_background_upload_versions_and_asset_center_relation(self):
+        image=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-character.jpg").read_bytes()
+        first=mm.upload_art_background(self.employee,self.art,{"upload":{"name":"training-ground-v1.jpg",
+            "base64":base64.b64encode(image+b"\x00").decode()},"source_ref":"art colleague"})["assets"]["background"]
+        self.assertTrue(first["available"])
+        self.assertEqual(first["version"],1)
+        self.assertEqual(first["name"],"training-ground-v1.jpg")
+        with store.connect() as c:
+            asset=c.execute("SELECT storage_ref FROM assets WHERE id=?",(first["asset_id"],)).fetchone()
+            registry=c.execute("SELECT subtype,metadata FROM asset_registry WHERE source_system='work_os' AND original_id=?",
+                               (first["asset_id"],)).fetchone()
+        self.assertIn("art_background",asset["storage_ref"])
+        self.assertEqual(registry["subtype"],"background")
+        self.assertEqual(store.parse(registry["metadata"],{})["art_id"],self.art)
+        self.assertTrue(any(x["name"]=="training-ground-v1.jpg" for x in asset_center.list_assets(self.manager,{"category":"场景"})["assets"]))
+
+        second=mm.upload_art_background(self.employee,self.art,{"upload":{"name":"training-ground-v2.jpg",
+            "base64":base64.b64encode(image+b"\x00\x00").decode()}})["assets"]["background"]
+        self.assertEqual(second["version"],2)
+        self.assertNotEqual(second["asset_id"],first["asset_id"])
+        with store.connect() as c:
+            rows=c.execute("SELECT version,asset_id,status FROM martial_mm_asset_links WHERE scope='art' AND scope_id=? AND role='background' ORDER BY version",(self.art,)).fetchall()
+        self.assertEqual([(r["version"],r["asset_id"],r["status"]) for r in rows],
+                         [(1,first["asset_id"],"superseded"),(2,second["asset_id"],"active")])
+
+    def test_art_background_rejects_non_image(self):
+        with self.assertRaisesRegex(ValueError,"PNG/JPG/WebP"):
+            mm.upload_art_background(self.employee,self.art,{"upload":{"name":"background.mp4","base64":"YQ=="}})
+        with self.assertRaisesRegex(ValueError,"图片无效"):
+            mm.upload_art_background(self.employee,self.art,{"upload":{"name":"background.png","base64":"YQ=="}})
+
+    def test_art_colleague_can_upload_only_after_claiming_background_task(self):
+        lesson_pipeline.initialize()
+        tasks=lesson_pipeline.ensure_tasks(self.manager,self.move)
+        background_task=next(t for t in tasks if t["stage"]=="background")
+        artist_id=store.create_user("art-colleague","美术同事","employee","fixture-password")
+        artist={"id":artist_id,"role":"employee"}
+        image=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-character.jpg").read_bytes()
+        data={"upload":{"name":"art-background.jpg","base64":base64.b64encode(image+b"\x01").decode()}}
+        with self.assertRaisesRegex(PermissionError,"教学背景任务"):
+            mm.upload_art_background(artist,self.art,data)
+        lesson_pipeline.claim_task(artist,background_task["id"])
+        self.assertTrue(martial.overview(artist)["arts"])
+        uploaded=mm.upload_art_background(artist,self.art,data)
+        self.assertEqual(uploaded["assets"]["background"]["version"],1)
 
     def test_inheritance_override_script_tts_version_and_completion(self):
         initial=mm.move_assets(self.employee,self.move)

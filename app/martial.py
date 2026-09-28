@@ -265,6 +265,7 @@ def specialty(user: dict) -> bool:
 
 def allow(user: dict, write=False):
     if user["role"] in {"founder","manager"}: return
+    if not write and user["role"]=="employee" and store.project_allowed(user,"wuxiang"):return
     if not specialty(user): raise PermissionError("没有武学数字资产权限")
     if write and user["role"] != "employee": raise PermissionError("只有岗位员工可维护草稿")
 
