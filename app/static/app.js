@@ -31,7 +31,7 @@ function page(title,crumb='工作台'){
     }else parts.push([title,null]);
   }else if(view.startsWith('ai:'))parts.push(['AI 创作','ai:home'],...(view.startsWith('ai:artifact:')?[['创作记录','ai:history']]:[]),[title,null]);
   else if(view.startsWith('task:'))parts.push(['任务',state.user?.role==='employee'?'my-tasks':'manager:tasks'],[title,null]);
-  else if(view.startsWith('project:'))parts.push(['项目','projects'],[title,null]);
+  else if(view.startsWith('project:'))parts.push(['项目',state.user?.role==='employee'?'projects':'manager:projects'],[title,null]);
   else if(view!==home)parts.push([title,null]);
   $('#breadcrumb').innerHTML=parts.map(([label,route],index)=>`${index?'<span aria-hidden="true">/</span>':''}${route&&index!==parts.length-1?`<button type="button" data-view="${esc(route)}">${esc(label)}</button>`:`<strong>${esc(label)}</strong>`}`).join('');
 }
@@ -49,11 +49,11 @@ function nav(){
   const manager=['manager','founder'].includes(state.user.role),specialist=!!state.user.martial_specialist;
   const list=[[null,'工作台'],[manager?'manager:overview':'today','工作台'],...(state.user.role==='founder'?[['founder','待我决策']]:[]),...(!manager?[['my-tasks','我的任务'],['revisions','我的返修']]:[]),
     [null,'功法生产'],...(manager||specialist?[['martial:arts','功法列表']]:[]),['martial:lesson-tasks','生产任务'],...(manager||specialist?[['martial:masters','数字老师']]:[]),
-    [null,'创作与资产'],['assets','素材中心'],['works','我的作品'],['ai:home','AI 创作'],['ai:history','创作记录'],['projects','我的项目'],
-    ...(manager?[[null,'组织管理'],['manager:tasks','全部任务'],['manager:production','生产流程'],['manager:projects','项目概览'],['manager:team','团队成员'],['ai:admin','AI 能力管理']]:[])];
+    [null,'创作与资产'],['assets','素材中心'],['works','我的作品'],['ai:home','AI 创作'],['ai:history','创作记录'],...(!manager?[['projects','我的项目']]:[]),
+    ...(manager?[[null,'组织管理'],['manager:tasks','全部任务'],['manager:production','生产流程'],['manager:projects','项目列表'],['manager:team','团队成员'],['ai:admin','AI 能力管理']]:[])];
   const root=$('#nav'),signature=`${state.user.id}:${state.user.role}:${!!state.user.martial_specialist}`;
   if(root.dataset.signature!==signature){root.innerHTML=list.map(([v,label])=>v?`<button data-view="${EAttr(v)}"><span class="nav-dot"></span>${esc(label)}</button>`:`<div class="nav-section">${esc(label)}</div>`).join('');root.dataset.signature=signature}
-  const view=state.view,activeView=view.startsWith('martial:art:')||view.startsWith('martial:move:')||view.startsWith('martial:lesson:')?'martial:arts':view.startsWith('martial:master:')?'martial:masters':view.startsWith('martial:assets')?'assets':view.startsWith('ai:artifact:')?'ai:history':view.startsWith('ai:')&&!['ai:history','ai:admin'].includes(view)?'ai:home':view.startsWith('task:')?manager?'manager:tasks':'my-tasks':view.startsWith('project:')?'projects':view==='martial:today'||view==='martial:overview'?manager?'manager:overview':'today':view;
+  const view=state.view,activeView=view.startsWith('martial:art:')||view.startsWith('martial:move:')||view.startsWith('martial:lesson:')?'martial:arts':view.startsWith('martial:master:')?'martial:masters':view.startsWith('martial:assets')?'assets':view.startsWith('ai:artifact:')?'ai:history':view.startsWith('ai:')&&!['ai:history','ai:admin'].includes(view)?'ai:home':view.startsWith('task:')?manager?'manager:tasks':'my-tasks':view.startsWith('project:')?manager?'manager:projects':'projects':view==='martial:today'||view==='martial:overview'?manager?'manager:overview':'today':view;
   root.querySelectorAll('[data-view]').forEach(button=>{const active=button.dataset.view===activeView;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current')});
 }
 const EAttr=esc;
