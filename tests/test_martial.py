@@ -103,7 +103,8 @@ class MartialTest(unittest.TestCase):
         tid=ready["task_id"]
         self.assertEqual(m.move_detail(mid,self.x)["task"]["assignee_id"],self.x["id"])
         self.assertEqual(m.package_report(pkg["id"],{"status":"complete"})["task_id"],tid)
-        self.assertEqual(m.quote(self.x,mid,"sd2.5",1)["task_budget"],3.6)
+        self.assertTrue(m.quote(self.x,mid,"sd2.5",1)["budget_unlimited"])
+        self.assertIsNone(m.quote(self.x,mid,"sd2.5",1)["task_budget"])
         self.assertFalse(m.quote(self.x,mid,"sd2.5",1)["blocked"])
         m.route_report([])
         unknown=m.quote(self.x,mid,"sd2.5",1)
@@ -115,7 +116,7 @@ class MartialTest(unittest.TestCase):
         jobs=m.create_media(self.x,mid,{"generation_mode":"preview","asset_type":"teaching","model":"sd2.5","candidate_count":1,"revision_of":""})
         jid=jobs[0]["id"]
         self.assertEqual(jobs[0]["status"],"queued")
-        self.assertTrue(m.quote(self.x,mid,"sd2.5",1)["blocked"])
+        self.assertFalse(m.quote(self.x,mid,"sd2.5",1)["blocked"])
         spec=m.media_claim(jid)
         self.assertEqual(spec["provider"],"runy")
         self.assertEqual(spec["model"],"doubao-seedance-2-5")
@@ -210,7 +211,8 @@ class MartialTest(unittest.TestCase):
         self.assertNotEqual(prepared["task_id"],tid)
         detail=m.move_detail(mid,self.x)
         self.assertEqual(detail["task"]["id"],prepared["task_id"])
-        self.assertEqual(detail["task"]["budget_cap"],3.6)
+        self.assertEqual(detail["task"]["budget_cap"],0)
+        self.assertTrue(detail["task"]["budget_unlimited"])
         self.assertEqual(detail["finals"][0]["media_job_id"],new_job_id)
         with s.connect() as c:
             old_lock=s.parse(s.record(c,"tasks",tid)["motion_lock"],{})

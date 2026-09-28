@@ -245,17 +245,23 @@ def initialize():
         martial_assets.ensure_schema(c)
         martial_revision.ensure_schema(c)
         martial_revision.backfill_p0(c)
-        # The owner explicitly approved no task budget cap for the existing
-        # flowing-cloud / first-move production run. Apply to that task once;
-        # later tasks and a manager's future budget choice are unaffected.
-        marker="flowing_cloud_01_unlimited_budget_20260924"
+        # The 5s price estimate was incorrectly reused as a per-move spending
+        # cap. Migrate only system-created martial tasks with that untouched
+        # default; keep every explicit manager budget choice.
+        marker="martial_default_unlimited_budget_20260928"
         if not c.execute("SELECT 1 FROM martial_one_time_changes WHERE name=?",(marker,)).fetchone():
-            target=c.execute("SELECT m.task_id FROM martial_moves m JOIN tasks t ON t.id=m.task_id "
-                             "WHERE m.id='mv_flowing_cloud_01' AND t.project_id='wuxiang'").fetchone()
-            if target:
-                c.execute("INSERT OR REPLACE INTO martial_budget_policies(task_id,unlimited,updated_by,updated_at) VALUES(?,?,?,?)",
-                          (target[0],1,"u_system",stamp))
-                c.execute("INSERT INTO martial_one_time_changes(name,applied_at) VALUES(?,?)",(marker,stamp))
+            targets=c.execute("SELECT DISTINCT t.id FROM martial_moves m JOIN tasks t ON t.id=m.task_id "
+                "WHERE t.project_id='wuxiang' AND t.workflow_id='WF-01' AND t.created_by='u_system' "
+                "AND t.budget_cap=? AND NOT EXISTS "
+                "(SELECT 1 FROM audit a WHERE a.task_id=t.id AND a.action='martial.budget.set')",
+                (PRICE["sd2.5"]["reservation"],)).fetchall()
+            for target in targets:
+                tid=target[0]
+                c.execute("INSERT OR IGNORE INTO martial_budget_policies(task_id,unlimited,updated_by,updated_at) VALUES(?,?,?,?)",
+                          (tid,1,"u_system",stamp))
+                c.execute("UPDATE tasks SET budget_cap=0,updated_at=? WHERE id=?",(stamp,tid))
+                store.audit(c,"u_system","martial.budget.default_unlimited",tid,{})
+            c.execute("INSERT INTO martial_one_time_changes(name,applied_at) VALUES(?,?)",(marker,stamp))
 
 
 def specialty(user: dict) -> bool:
@@ -1567,9 +1573,7 @@ def _materialize_task(package_id: str):
           "context":{"martial_move_id":move["id"],"source_ref":mv["source_ref"]},
           "deliverable_contract":{"required":"教学或演练视频，需完成 Martial QC"},
           "qc_contract":{"criteria":["角色一致","动作与真人参考一致","招式中英文事实准确","视频可播放"]},
-          # One verified 5s Seedance 2.5 candidate is the normal production
-          # allowance. Further candidates require a separate budget increase.
-          "budget_cap":PRICE["sd2.5"]["reservation"]}
+          "budget_cap":0}
     created=store.create_task(spec,"u_system")
     tid=created["id"]
     with store.connect() as c:
@@ -1578,6 +1582,8 @@ def _materialize_task(package_id: str):
         updated=c.execute("UPDATE martial_moves SET task_id=?,updated_at=? WHERE id=? AND task_id IS ?",(tid,store.now(),move["id"],previous_task_id))
         if updated.rowcount!=1:raise RuntimeError("招式任务在建立新版期间发生变化，请刷新后重试")
         c.execute("UPDATE martial_packages SET task_id=? WHERE id=?",(tid,package_id))
+        c.execute("INSERT INTO martial_budget_policies(task_id,unlimited,updated_by,updated_at) VALUES(?,?,?,?)",
+                  (tid,1,"u_system",store.now()))
         result=store.parse(pkg["result"],{})
         c.execute("UPDATE tasks SET ai_prepared=?,updated_at=? WHERE id=?",(store.dumps(prepared),store.now(),tid))
         store.update_task_status(c,tid,{"planned"},"ready","u_system")

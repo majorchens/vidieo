@@ -76,6 +76,26 @@ class ReferenceReproductionTest(unittest.TestCase):
                 "negative_constraints":[],"reference_mapping":[],"qc_checklist":[],
                 "missing_inputs":[],"facts":{},"ai_suggestions":[]}
 
+    def test_legacy_auto_budget_is_removed_without_overriding_manager_choice(self):
+        package=martial.request_package(self.employee,self.move_id)
+        tid=martial.package_report(package["id"],{"status":"complete","body":self.body("按参考动作")})["task_id"]
+        marker="martial_default_unlimited_budget_20260928"
+        with store.connect() as c:
+            c.execute("UPDATE tasks SET budget_cap=3.6 WHERE id=?",(tid,))
+            c.execute("DELETE FROM martial_budget_policies WHERE task_id=?",(tid,))
+            c.execute("DELETE FROM martial_one_time_changes WHERE name=?",(marker,))
+        martial.initialize()
+        with store.connect() as c:
+            self.assertEqual(store.record(c,"tasks",tid)["budget_cap"],0)
+            self.assertTrue(martial._budget_unlimited(c,tid))
+        martial.update_budget(self.manager,self.move_id,3.6)
+        with store.connect() as c:
+            c.execute("DELETE FROM martial_one_time_changes WHERE name=?",(marker,))
+        martial.initialize()
+        with store.connect() as c:
+            self.assertEqual(store.record(c,"tasks",tid)["budget_cap"],3.6)
+            self.assertFalse(martial._budget_unlimited(c,tid))
+
     def test_formal_generation_uses_pinned_art_background_and_cloud_motion_prompt(self):
         martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",
             "source_start":0,"source_end":15,"target_duration":15,"brief":"与真人原片等长"})
@@ -238,8 +258,12 @@ class ReferenceReproductionTest(unittest.TestCase):
         self.assertEqual((teaching["estimated_cost"],practice["estimated_cost"]),(None,19))
         self.assertEqual((teaching["aspect_ratio"],practice["aspect_ratio"]),("9:16","9:16"))
         self.assertTrue(teaching["blocked"])
-        self.assertTrue(practice["blocked"])
-        self.assertIn("预算不足",practice["block_reason"])
+        self.assertFalse(practice["blocked"])
+        self.assertTrue(practice["budget_unlimited"])
+        martial.update_budget(self.manager,self.move_id,3.6)
+        fixed=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","practice")
+        self.assertTrue(fixed["blocked"])
+        self.assertIn("预算不足",fixed["block_reason"])
         martial.update_budget(self.manager,self.move_id,"unlimited")
         unbounded=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","teaching")
         self.assertTrue(unbounded["blocked"])
