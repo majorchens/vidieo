@@ -1,0 +1,25 @@
+{
+  "schema": "MartialVideoEditTrialProfiles/v1",
+  "profiles": [
+    {
+      "id": "liuyun-palm-01-20260928",
+      "move_id": "mv_flowing_cloud_01",
+      "motion_sha256": "2bb081765e8fe0bb3d0761ed390f4538adfda3ac1ba76e5512829910e5463115",
+      "tracks": {
+        "teaching": {
+          "cut_points": [12],
+          "segment_notes": [
+            "本段本地 0–6 秒并步站立、手臂自然下垂；约 6–8 秒双手收至腰部并转向画面右侧；约 8–12 秒维持侧向准备姿态，双脚尚未迈步。不得提前跨步推掌。",
+            "本段本地 0 秒接续侧向准备姿态；之后依真人视频跨步推掌，保持深步、前掌与后掌的相对位置和停留时间；不得提前收势，也不得把双掌都抬到相同高度。"
+          ]
+        },
+        "practice": {
+          "cut_points": [],
+          "segment_notes": [
+            "依真人视频完整保持准备、跨步推掌与收势的顺序和节奏，维持前掌与后掌的相对高度；不增加掌花、跳跃或重复。"
+          ]
+        }
+      }
+    }
+  ]
+}

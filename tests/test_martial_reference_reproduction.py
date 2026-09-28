@@ -18,6 +18,8 @@ sys.path.insert(0,str(ROOT/"app"))
 import martial
 import martial_connector
 import martial_initialization
+import asset_center
+import lesson_pipeline
 import server
 import store
 
@@ -177,6 +179,54 @@ class ReferenceReproductionTest(unittest.TestCase):
         self.assertIn("本地 0 秒即原片 33.000 秒",claim["segments"][0]["prompt"])
         self.assertNotIn("合成后全片时长",claim["segments"][0]["prompt"])
         self.assertEqual(martial.move_detail(self.move_id,self.employee)["media"][0]["segments"][0]["duration"],14)
+
+    def test_video_edit_trial_uses_two_versioned_art_refs_and_cannot_be_finalized(self):
+        asset_center.initialize();lesson_pipeline.initialize()
+        image=(ROOT/"tests/fixtures/wuxiang/cryn-character.jpg").read_bytes()
+        for role in ("pilot_scene","pilot_background"):
+            lesson_pipeline.upload_asset(self.employee,self.move_id,{"role":role,
+                "upload":self.upload(role+".jpg",image)})
+        martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching","source_start":0,
+            "source_end":15,"target_duration":15,"brief":"真人动作是唯一时序"})
+        pkg=martial.request_package(self.employee,self.move_id)
+        ready=martial.package_report(pkg["id"],{"status":"complete","body":self.body("按原片动作试拍")})
+        store.start(ready["task_id"],self.employee)
+        martial.update_budget(self.manager,self.move_id,"unlimited")
+        quote=martial.quote(self.employee,self.move_id,"sd2.5",1,"edit_trial","teaching")
+        self.assertFalse(quote["blocked"])
+        self.assertEqual([(s["source_start"],s["source_end"]) for s in quote["segments"]],[(0,15)])
+        job=martial.create_media(self.employee,self.move_id,{"generation_mode":"edit_trial",
+            "asset_type":"teaching","model":"sd2.5"})[0]
+        claim=martial.media_claim(job["id"])
+        self.assertEqual((len(claim["image_urls"]),len(claim["segments"])),(2,1))
+        self.assertTrue(claim["segments"][0]["video_edit"])
+        with store.connect() as c:
+            self.assertEqual(lesson_pipeline._check(c,lesson_pipeline._ensure(c,self.move_id))["checks"]["background"],False)
+            self.assertIsNotNone(martial._current_final_error(c,martial._row(c,"martial_media_jobs",job["id"])))
+
+    def test_video_edit_trial_requires_manual_natural_cut_for_long_motion(self):
+        asset_center.initialize();lesson_pipeline.initialize()
+        with store.connect() as c:
+            c.execute("UPDATE martial_motion_refs SET duration=46.7,end_time=46.7 WHERE id=?",(self.ref["id"],))
+        martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",
+            "source_start":0,"source_end":33,"target_duration":33,"brief":"讲解试拍"})
+        pkg=martial.request_package(self.employee,self.move_id)
+        ready=martial.package_report(pkg["id"],{"status":"complete","body":self.body("按原片动作试拍")})
+        store.start(ready["task_id"],self.employee)
+        martial.update_budget(self.manager,self.move_id,"unlimited")
+        no_cut=martial.quote(self.employee,self.move_id,"sd2.5",1,"edit_trial","teaching")
+        self.assertTrue(no_cut["blocked"])
+        self.assertIn("自然切点",no_cut["block_reason"])
+        with_cut=martial.quote(self.employee,self.move_id,"sd2.5",1,"edit_trial","teaching","12")
+        self.assertEqual([(s["source_start"],s["source_end"]) for s in with_cut["segments"]],[(0,12),(12,33)])
+
+    def test_reviewed_trial_notes_require_exact_motion_hash_and_cut(self):
+        sha="2bb081765e8fe0bb3d0761ed390f4538adfda3ac1ba76e5512829910e5463115"
+        chosen=martial._edit_trial_profile("mv_flowing_cloud_01",sha,"teaching","12")
+        self.assertEqual(chosen["id"],"liuyun-palm-01-20260928")
+        self.assertEqual(len(chosen["notes"]),2)
+        self.assertIsNone(martial._edit_trial_profile("mv_flowing_cloud_01",sha,"teaching","20"))
+        self.assertIsNone(martial._edit_trial_profile("mv_flowing_cloud_01","0"*64,"teaching","12"))
 
     def test_reference_clip_is_immutable_and_signed(self):
         martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",

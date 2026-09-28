@@ -195,7 +195,8 @@ def initialize():
                                     "cover_asset_id":"TEXT REFERENCES assets(id)"},
             "martial_packages": {"requested_by":"TEXT"},
             "martial_media_jobs": {"generation_mode":"TEXT", "video_plan_id":"TEXT REFERENCES martial_video_plans(id)",
-                                   "segments_json":"TEXT NOT NULL DEFAULT '[]'", "segment_progress":"TEXT NOT NULL DEFAULT '[]'"},
+                                   "segments_json":"TEXT NOT NULL DEFAULT '[]'", "segment_progress":"TEXT NOT NULL DEFAULT '[]'",
+                                   "edit_refs_json":"TEXT NOT NULL DEFAULT '{}'"},
             "martial_qc": {"checks":"TEXT NOT NULL DEFAULT '{}'", "issue_ranges":"TEXT NOT NULL DEFAULT '[]'",
                            "major_dispute":"INTEGER NOT NULL DEFAULT 0"},
         }.items():
@@ -392,7 +393,7 @@ def _package_track_facts_current(c, move: dict, facts: dict, ref: dict, plan: di
 
 def _current_job_error(c, job: dict) -> str | None:
     """Only candidates from the current two-track AI preparation may be acted on."""
-    if job.get("generation_mode") not in {"preview","reproduce","complete"}:
+    if job.get("generation_mode") not in {"preview","reproduce","complete","edit_trial"}:
         return "历史候选缺少当前双视频规划记录"
     move=_row(c,"martial_moves",job["move_id"])
     if not martial_product.current_move(c,move["id"]):return "招式已不在当前生产范围"
@@ -656,6 +657,7 @@ def move_detail(move_id: str, user: dict) -> dict:
             m["current_context"]=_current_job_error(c,m) is None
             m["technical_report"]=store.parse(m["technical_report"],{})
             m["segments"]=store.parse(m.pop("segments_json",None),[])
+            m["edit_refs"]=store.parse(m.pop("edit_refs_json",None),{})
             m["segment_progress"]=store.parse(m["segment_progress"],[])
             m.pop("prompt",None)  # a production prompt is shown through the approved package
             if user["role"]=="employee":
@@ -1682,6 +1684,64 @@ def _complete_segments(plan: dict) -> list[dict]:
              "reserved_cost":reserve,"estimated_cost":reserve}]
 
 
+def _edit_trial_segments(plan: dict, cut_points: str = "") -> list[dict]:
+    """Only employee-marked natural cuts; never infer a seam from duration."""
+    start=float(plan["source_start"]);end=float(plan["source_end"])
+    if end<=start or abs((end-start)-float(plan["target_duration"]))>0.25:
+        raise ValueError("动作试拍要求目标时长与所选真人片段一致")
+    raw=str(cut_points or "").strip()
+    try:cuts=[round(float(item.strip()),3) for item in raw.split(",") if item.strip()]
+    except ValueError as exc:raise ValueError("自然切点须填写原片秒数，用逗号分隔") from exc
+    if len(cuts)>10 or any(not math.isfinite(x) for x in cuts) or cuts!=sorted(set(cuts)):
+        raise ValueError("自然切点须按时间递增且不能重复")
+    boundaries=[start,*cuts,end]
+    if any(not 4<=b-a<=RUNY_VIDEO_REFERENCE_MAX_SECONDS for a,b in zip(boundaries,boundaries[1:])):
+        raise ValueError("请由武术同事标出自然切点；每段真人动作须为 4–30 秒且不得跨出所选区间")
+    segments=[]
+    for index,(a,b) in enumerate(zip(boundaries,boundaries[1:])):
+        source_duration=round(b-a,3)
+        duration=math.ceil(source_duration-0.001)
+        reserve=math.ceil((source_duration+duration)*9585*59.5/1_000_000*1.2)
+        segments.append({"index":index,"source_start":round(a,3),"source_end":round(b,3),
+                         "source_duration":source_duration,"duration":duration,
+                         "reserved_cost":reserve,"estimated_cost":reserve})
+    return segments
+
+
+def _edit_trial_refs(c, move_id: str) -> dict:
+    """Trial image bindings stay outside every formal dependency check."""
+    lesson_id="lesson_"+move_id
+    refs={}
+    for role in ("pilot_scene","pilot_background"):
+        row=c.execute("""SELECT b.original_id,b.sha256,b.version,b.registry_asset_id,b.source_system,
+                       r.status AS asset_status,r.type FROM martial_lesson_asset_versions b
+                       JOIN asset_registry r ON r.asset_id=b.registry_asset_id
+                       WHERE b.lesson_id=? AND b.role=? AND b.shot_id='' AND b.status='active'""",
+                      (lesson_id,role)).fetchone()
+        if (not row or row["source_system"]!="work_os" or row["asset_status"]!="active" or
+            row["type"]!="image" or not re.fullmatch(r"a_[a-f0-9]{16}",row["original_id"])):
+            raise ValueError("请先在教学包上传试拍老师场景参考和试拍纯背景参考；它们不会计入正式美术资产")
+        source=store.record(c,"assets",row["original_id"])
+        if source["sha256"]!=row["sha256"] or not Path(source["storage_ref"]).is_file():
+            raise ValueError("试拍参考图已变化或文件不可用，请重新上传并关联")
+        refs[role]={"asset_id":row["original_id"],"registry_asset_id":row["registry_asset_id"],
+                    "version":row["version"],"sha256":row["sha256"]}
+    return refs
+
+
+def _edit_trial_profile(move_id: str, motion_sha256: str, asset_type: str, cut_points: str) -> dict | None:
+    """Optional source-pinned motion notes from a reviewed visual trial."""
+    catalog=json.loads(Path(__file__).with_name("martial_edit_trial_profiles.json").read_text(encoding="utf-8"))
+    for profile in catalog.get("profiles",[]):
+        if profile.get("move_id")!=move_id or profile.get("motion_sha256")!=motion_sha256:
+            continue
+        track=(profile.get("tracks") or {}).get(asset_type) or {}
+        if ",".join(str(x) for x in track.get("cut_points",[]))!=cut_points.strip():
+            continue
+        return {"id":profile["id"],"notes":track.get("segment_notes") or []}
+    return None
+
+
 def _reference_aspect_ratio(ref: dict | None) -> str:
     if not ref:return "16:9"
     width=float(ref.get("width") or 0);height=float(ref.get("height") or 0)
@@ -1690,10 +1750,10 @@ def _reference_aspect_ratio(ref: dict | None) -> str:
     return "9:16" if width/height<0.8 else "1:1" if width/height<1.2 else "16:9"
 
 
-def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="preview", asset_type="teaching") -> dict:
+def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="preview", asset_type="teaching", cut_points="") -> dict:
     allow(user)
     if model_alias not in PRICE:raise ValueError("该业务模型暂无已验证报价")
-    if generation_mode not in {"preview","reproduce","complete"}:raise ValueError("未知视频生成方式")
+    if generation_mode not in {"preview","reproduce","complete","edit_trial"}:raise ValueError("未知视频生成方式")
     if asset_type not in VIDEO_TYPES:raise ValueError("请选择讲解演示或跟教练跟练视频")
     count=int(count)
     if count not in {1,2}:raise ValueError("候选数量只能是 1 或 2")
@@ -1733,11 +1793,15 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
                     "asset_type":asset_type,"source_start":selected_start,"source_end":selected_end,
                     "target_duration":plan["target_duration"] if plan else None,
                     "video_plan_version":plan["version"] if plan else None}
-    if generation_mode=="complete":
+    if generation_mode in {"complete","edit_trial"}:
         segment_error=None;segments=[]
         if plan:
-            try:segments=_complete_segments(plan)
+            try:segments=_edit_trial_segments(plan,cut_points) if generation_mode=="edit_trial" else _complete_segments(plan)
             except ValueError as exc:segment_error=str(exc)
+        if generation_mode=="edit_trial":
+            try:
+                with store.connect() as art_c:_edit_trial_refs(art_c,move_id)
+            except ValueError as exc:segment_error=segment_error or str(exc)
         priced=route and route["provider"]=="runy" and route["model"]==PRICE[model_alias]["model"]
         if model_alias!="sd2.5":priced=False
         cost=sum(s["reserved_cost"] for s in segments)*count if priced and segments else None
@@ -1746,7 +1810,8 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
                 ("当前润元 Seedance 2.5 路由未核验" if not priced else None) or
                 ("任务预算不足，请负责人先调整预算" if cost is not None and remaining is not None and cost>remaining else None))
         return {"generation_mode":generation_mode,"model_alias":model_alias,
-                "duration":math.ceil(plan["target_duration"]) if plan else None,
+                "duration":(sum(s["duration"] for s in segments) if generation_mode=="edit_trial" and segments else
+                            math.ceil(plan["target_duration"]) if plan else None),
                 "target_duration":plan["target_duration"] if plan else None,
                 "resolution":"480p","aspect_ratio":aspect_ratio,"candidate_count":count,
                 "estimated_cost":cost,"task_budget":budget,"remaining_budget":remaining,
@@ -1754,7 +1819,9 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
                 "blocked":bool(reason or cost is None),"block_reason":reason or ("完整制作预留未核定" if cost is None else None),
                 "price_source":LONG_VIDEO_RESERVATION_SOURCE if cost is not None else None,
                 "price_kind":"reservation_estimate","segments":segments,
-                "scope":"按所选真人片段单段生成候选，需员工进行动作 QC；生成模型不保证逐帧复刻",**reference_info}
+                "scope":("视频编辑试拍候选：老师场景和纯背景为试拍输入，不可定版或满足正式依赖；仍需真人动作对照"
+                         if generation_mode=="edit_trial" else
+                         "按所选真人片段单段生成候选，需员工进行动作 QC；生成模型不保证逐帧复刻"),**reference_info}
     if generation_mode=="reproduce":
         trimmed=(plan is not None and source_duration is not None and
                  (selected_start>0.01 or selected_end<source_duration-0.01))
@@ -1801,9 +1868,10 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
     alias=str(data.get("model") or "sd2.5")
     count=int(data.get("candidate_count") or 1)
     generation_mode=str(data.get("generation_mode") or "preview")
+    cut_points=str(data.get("cut_points") or "").strip()
     asset_type=str(data.get("asset_type") or "")
     if asset_type not in VIDEO_TYPES:raise ValueError("请选择讲解演示或跟教练跟练视频")
-    estimate=quote(user,move_id,alias,count,generation_mode,asset_type)
+    estimate=quote(user,move_id,alias,count,generation_mode,asset_type,cut_points)
     if not data.get("generation_mode") and (estimate.get("target_duration") or 0)>5.01:
         raise ValueError("目标视频超过 5 秒，请明确选择完整制作或 5 秒样片")
     if estimate["blocked"]:raise ValueError(estimate["block_reason"]+"，暂不可发起付费生成")
@@ -1836,17 +1904,25 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
         if lock_error:raise ValueError(lock_error)
         suggestion=str(package.get(asset_type+"_prompt") or "").strip()
         if not suggestion:raise ValueError("AI 生产包没有生成提示词")
-        complete=generation_mode=="complete"
-        prompt=(f"《{art['chinese_name']}·{mv['payload']['chinese_name']}》"
+        full=generation_mode in {"complete","edit_trial"}
+        edit_trial=generation_mode=="edit_trial"
+        edit_refs=_edit_trial_refs(c,move_id) if edit_trial else {}
+        prompt=(("编辑视频 1，只替换人物与背景；" if edit_trial else "")+
+                f"《{art['chinese_name']}·{mv['payload']['chinese_name']}》"
                 f"{'讲解演示' if asset_type=='teaching' else '跟教练跟练'}动作复刻。"
-                f"图片 1 仅用于数字老师 {master['name']} V{mm['version']} 的身份、外观和服装；"
+                +(f"图片 1 是数字老师 {master['name']} V{mm['version']} 在教学场景中的试拍合成参考；"
+                  "图片 2 是不含人物的同场景纯背景。保留图片 1 的角色身份、服装与场景布局，"
+                  "用图片 2 替换真人视频中的原背景；全程保持同一角色和武术场景。"
+                  if edit_trial else
+                  f"图片 1 仅用于数字老师 {master['name']} V{mm['version']} 的身份、外观和服装；")+
                 "视频 1 是唯一的动作与时序参考。逐时刻保留视频 1 中双手轨迹、双脚落点、朝向、"
                 "重心、速度、停顿、起止姿态和完整身体取景。只替换人物外观，不新增动作、换边、"
                 "改拍或改变节奏。固定全身机位，保持手脚无遮挡。"
                 "若文字与参考视频画面冲突，以参考视频为准。"
                 +("本次仅制作当前裁切区间，不引用原片其他秒点。"
-                  if complete else
+                  if full else
                   "本次只生成 5 秒短片预览，不得表述成完整真人视频复刻或正式视频。"))
+        if edit_trial:prompt+="\n这是无音轨的视觉试拍候选，不加字幕、文字、对白、配乐或音效。试拍参考图不能作为正式美术资产。"
         if asset_type=="practice":prompt+="\n输出动作演练素材，不把动态教学反馈语音烧入标准视频。"
         else:prompt+="\n输出数字功法老师教学视频；标准视频与动态 TTS 分离。"
         prompt_hash=hashlib.sha256(prompt.encode()).hexdigest()
@@ -1856,11 +1932,12 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
         if not route or route["provider"]!="runy" or route["model"]!=PRICE[alias]["model"]:
             raise ValueError("当前模型路由或报价未核验，暂不可提交付费生成")
         revision_of=str(data.get("revision_of") or "").strip() or None
-        if complete:
+        if edit_trial and revision_of:raise ValueError("试拍不能使用正式动作返修入口")
+        if full:
             active=c.execute("SELECT id FROM martial_media_jobs WHERE move_id=? AND asset_type=? AND video_plan_id=? "
-                             "AND generation_mode='complete' AND status IN "
+                             "AND generation_mode=? AND status IN "
                              "('queued','dispatching','submitted','running','download_pending','technical_check','unknown_submission') LIMIT 1",
-                             (move_id,asset_type,plan["id"])).fetchone()
+                             (move_id,asset_type,plan["id"],generation_mode)).fetchone()
             if active:raise ValueError("该视频已有制作中或提交状态待核对的任务，请勿重复付费提交")
         if revision_of:
             old=_row(c,"martial_media_jobs",str(revision_of))
@@ -1874,19 +1951,28 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
         for _ in range(count):
             jid="mj_"+secrets.token_hex(8);stamp=store.now()
             key="workos:martial:media:"+jid
-            segments=estimate.get("segments") or []
-            duration=math.ceil(float(plan["target_duration"])) if complete else 5
-            reservation=estimate["estimated_cost"]/count if complete else PRICE[alias]["reservation"]
-            quote_source=LONG_VIDEO_RESERVATION_SOURCE if complete else PRICE_SOURCE
-            c.execute("INSERT INTO martial_media_jobs(id,move_id,task_id,package_id,motion_ref_id,master_version,asset_type,provider,model_alias,model,prompt_hash,prompt,character_asset_id,duration,aspect_ratio,resolution,status,request_key,idempotency_key,reserved_cost,quote_source,revision_of,generation_mode,video_plan_id,segments_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            segments=[dict(s) for s in (estimate.get("segments") or [])]
+            if edit_trial:
+                source=store.record(c,"assets",ref["video_asset_id"])
+                profile=_edit_trial_profile(move_id,source["sha256"],asset_type,cut_points)
+                if profile:
+                    if len(profile["notes"])!=len(segments):raise ValueError("视频编辑试拍配置的动作段数与切点不一致")
+                    for segment,note in zip(segments,profile["notes"]):
+                        segment["motion_note"]=str(note)[:800]
+                        segment["profile_id"]=profile["id"]
+            duration=(sum(s["duration"] for s in segments) if edit_trial else math.ceil(float(plan["target_duration"]))) if full else 5
+            reservation=estimate["estimated_cost"]/count if full else PRICE[alias]["reservation"]
+            quote_source=LONG_VIDEO_RESERVATION_SOURCE if full else PRICE_SOURCE
+            c.execute("INSERT INTO martial_media_jobs(id,move_id,task_id,package_id,motion_ref_id,master_version,asset_type,provider,model_alias,model,prompt_hash,prompt,character_asset_id,duration,aspect_ratio,resolution,status,request_key,idempotency_key,reserved_cost,quote_source,revision_of,generation_mode,video_plan_id,segments_json,edit_refs_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (jid,move_id,task["id"],pkg["id"],ref["id"],mm["version"],asset_type,route["provider"],alias,route["model"],
-                       prompt_hash,prompt,visual,duration,estimate["aspect_ratio"],"480p","queued",key,key,reservation,quote_source,
-                       revision_of,generation_mode,plan["id"],store.dumps(segments),stamp,stamp))
+                       (hashlib.sha256((prompt+store.dumps(segments)).encode()).hexdigest() if edit_trial else prompt_hash),
+                       prompt,visual,duration,estimate["aspect_ratio"],"480p","queued",key,key,reservation,quote_source,
+                       revision_of,generation_mode,plan["id"],store.dumps(segments),store.dumps(edit_refs),stamp,stamp))
             created.append(jid)
         store.audit(c,user["id"],"martial.media.queue",task["id"],{"media_job_ids":created,"reserved_cost":estimate["estimated_cost"]})
         return [{"id":jid,"status":"queued","model_alias":alias,"asset_type":asset_type,
-                 "generation_mode":generation_mode,"duration":math.ceil(float(plan["target_duration"])) if complete else 5,
-                 "reserved_cost":estimate["estimated_cost"]/count if complete else PRICE[alias]["reservation"]} for jid in created]
+                 "generation_mode":generation_mode,"duration":duration,
+                 "reserved_cost":estimate["estimated_cost"]/count if full else PRICE[alias]["reservation"]} for jid in created]
 
 
 def _sign(asset_id: str, expires: int) -> str:
@@ -1944,7 +2030,7 @@ def clip_source_path(job_id: str, index: int, exp: str, sig: str) -> Path:
     with store.connect() as c:
         job=_row(c,"martial_media_jobs",job_id)
         segments=store.parse(job["segments_json"],[])
-        if job["generation_mode"]!="complete" or index>=len(segments):
+        if job["generation_mode"] not in {"complete","edit_trial"} or index>=len(segments):
             raise PermissionError("片段不属于完整制作任务")
     if not path.is_file() or path.stat().st_size>200_000_000:
         raise ValueError("参考片段尚未准备好")
@@ -1958,7 +2044,7 @@ def stage_reference_clip(job_id: str, index: int, uploaded: Path, sha256: str) -
     with store.connect() as c:
         job=_row(c,"martial_media_jobs",job_id)
         segments=store.parse(job["segments_json"],[])
-        if job["generation_mode"]!="complete" or index>=len(segments):
+        if job["generation_mode"] not in {"complete","edit_trial"} or index>=len(segments):
             raise ValueError("视频作业没有该参考片段")
         if job["status"] not in {"queued","dispatching","submitted","running","download_pending","technical_check"}:
             raise ValueError("视频作业状态不允许上传片段")
@@ -2002,11 +2088,20 @@ def media_claim(job_id: str) -> dict:
         plan=c.execute("SELECT * FROM martial_video_plans WHERE id=?",(job["video_plan_id"],)).fetchone() if job["video_plan_id"] else None
         asset=store.record(c,"assets",ref["video_asset_id"])
         segments=store.parse(job["segments_json"],[])
+        edit_refs=store.parse(job["edit_refs_json"],{}) if job["generation_mode"]=="edit_trial" else {}
+        if job["generation_mode"]=="edit_trial":
+            if set(edit_refs)!={"pilot_scene","pilot_background"}:
+                raise ValueError("视频编辑任务缺少锁定的试拍图版本")
+            if job["status"]=="queued" and _edit_trial_refs(c,job["move_id"])!=edit_refs:
+                raise ValueError("试拍参考图版本已变化；旧任务不会用新图提交")
         for s in segments:
             s["request_key"]=job["request_key"]+f":segment:{s['index']}"
+            if job["generation_mode"]=="edit_trial":s["video_edit"]=True
             s["prompt"]=(job["prompt"]+f"\n视频 1 已从真人原片裁出 {s['source_start']:.3f}–"
                          f"{s['source_end']:.3f} 秒，视频 1 的本地 0 秒即原片 {s['source_start']:.3f} 秒。"
-                         f"本次只生成这一个 {s['duration']} 秒动作单元，不引用原片其他区间。")
+                         f"本次只生成这一段约 {s['source_duration']} 秒动作单元，不引用原片其他区间。"
+                         +(f"\n经本片试拍对照的动作阶段提示：{s['motion_note']}" if s.get("motion_note") else ""))
+            s["prompt_sha256"]=hashlib.sha256(s["prompt"].encode()).hexdigest()
         expires=int(time.time())+6*3600
         return {"id":job_id,"status":job["status"],"request_key":job["request_key"],"task_id":job["task_id"],
                 "model_alias":job["model_alias"],"model":job["model"],"provider":job["provider"],
@@ -2020,8 +2115,10 @@ def media_claim(job_id: str) -> dict:
                 "reference_expires_at":expires,
                 "reference_source_url":source_url(ref["video_asset_id"],expires),
                 "reference_sha256":asset["sha256"],
-                "image_urls":[source_url(job["character_asset_id"],expires)],
-                "video_urls":[] if job["generation_mode"]=="complete" else [source_url(ref["video_asset_id"],expires)],
+                "image_urls":([source_url(edit_refs[role]["asset_id"],expires)
+                               for role in ("pilot_scene","pilot_background")] if edit_refs else
+                              [source_url(job["character_asset_id"],expires)]),
+                "video_urls":[] if job["generation_mode"] in {"complete","edit_trial"} else [source_url(ref["video_asset_id"],expires)],
                 "local_job_id":job["local_job_id"],"local_media_id":job["local_media_id"]}
 
 
@@ -2158,6 +2255,8 @@ def select_candidate(user: dict, media_job_id: str, reason: str) -> dict:
     if len(reason)<8 or len(reason)>2000:raise ValueError("请写明选择该候选的理由（至少 8 字）")
     with store.connect() as c:
         job=_row(c,"martial_media_jobs",media_job_id)
+        if job["generation_mode"]=="edit_trial":
+            raise ValueError("视频编辑试拍仅供动作对照，不得选用或定版为正式作品")
         if martial_product.historical(c,"media_job",media_job_id):raise ValueError("技术历史 Candidate 不可参与当前生产")
         context_error=_current_job_error(c,job)
         if context_error:raise ValueError(context_error)

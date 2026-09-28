@@ -32,6 +32,8 @@ ROLES = {
     "workflow": {"document"},
     "lesson_output": {"video"},
     "pilot_video": {"video"},
+    "pilot_scene": {"image"},
+    "pilot_background": {"image"},
     "pilot_motion_ref": {"video"},
     "pilot_audio": {"audio"},
     "pilot_subtitle": {"document"},
@@ -60,6 +62,8 @@ LABELS = {
     "bgm": "背景音乐", "sfx": "音效", "subtitle":"教学字幕",
     "composition": "合成锁定", "video": "教学视频",
     "pilot_video": "历史样片",
+    "pilot_scene": "试拍老师场景参考",
+    "pilot_background": "试拍纯背景参考",
     "pilot_motion_ref": "历史参考片段", "pilot_audio": "历史语音", "pilot_subtitle": "历史字幕",
     "audiovisual_review": "成片视听验收",
 }
@@ -357,7 +361,9 @@ def _latest_candidate(c, move_id: str) -> dict | None:
        q.id AS martial_qc_id,q.result AS martial_qc_result,
        q.reviewer_id AS martial_reviewer FROM martial_media_jobs j
        LEFT JOIN martial_qc q ON q.media_job_id=j.id AND q.stage='martial'
-       WHERE j.move_id=? AND j.asset_type='teaching' ORDER BY j.created_at DESC,j.rowid DESC""",(move_id,)):
+       WHERE j.move_id=? AND j.asset_type='teaching'
+         AND COALESCE(j.generation_mode,'complete') IN ('complete','reproduce')
+       ORDER BY j.created_at DESC,j.rowid DESC""",(move_id,)):
         if not martial_product.historical(c,"media_job",row["id"]):return dict(row)
     return None
 

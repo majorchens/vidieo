@@ -426,7 +426,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(martial.move_detail(item_id,user) if kind=="moves" else martial.master_detail(item_id,user));return
             if path=="/api/martial/quote":
                 query=__import__("urllib.parse",fromlist=["parse_qs"]).parse_qs(urlparse(self.path).query)
-                self.send_json(martial.quote(user,(query.get("move") or [""])[0],(query.get("model") or ["sd2.5"])[0],(query.get("count") or ["1"])[0],(query.get("generation_mode") or ["preview"])[0],(query.get("asset_type") or ["teaching"])[0]));return
+                self.send_json(martial.quote(user,(query.get("move") or [""])[0],(query.get("model") or ["sd2.5"])[0],(query.get("count") or ["1"])[0],(query.get("generation_mode") or ["preview"])[0],(query.get("asset_type") or ["teaching"])[0],(query.get("cut_points") or [""])[0]));return
             if path=="/api/me":
                 self.send_json({"user":safe_user(user),"csrf":user["csrf"]});return
             if path=="/api/today":

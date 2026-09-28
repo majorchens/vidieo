@@ -37,6 +37,14 @@ class ReferenceClipTest(unittest.TestCase):
             self.assertEqual(connector._file_sha256(self.source),original_hash)
             self.assertEqual(connector._technical(clip["path"])["result"],"pass")
 
+    def test_video_edit_preserves_high_resolution_motion_input(self):
+        with tempfile.TemporaryDirectory() as temp:
+            segment={"index":0,"source_start":1,"source_end":6,"video_edit":True}
+            clip=connector._clip_source(self.source,segment,Path(temp),self.JID,self.ffmpeg)
+            probe=martial._probe_video_file(clip["path"])
+            self.assertEqual(min(probe["width"],probe["height"]),1080)
+            self.assertAlmostEqual(clip["duration"],5,delta=.2)
+
     def test_single_segment_is_trimmed_to_fractional_final_duration(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
@@ -78,6 +86,12 @@ class ReferenceClipTest(unittest.TestCase):
         invalid=json.loads(json.dumps(base));invalid["video_urls"]=["https://example/whole.mp4"]
         with self.assertRaisesRegex(ValueError,"禁止把原片"):
             connector._media_segments(invalid)
+        edit={**base,"generation_mode":"edit_trial","model_alias":"sd2.5","provider":"runy",
+              "image_urls":["https://example/scene.png","https://example/bg.png"]}
+        self.assertEqual(len(connector._media_segments(edit)),2)
+        edit["image_urls"]=["https://example/scene.png"]
+        with self.assertRaisesRegex(ValueError,"老师场景图和独立背景图"):
+            connector._media_segments(edit)
 
     def test_signed_clip_url_includes_deployment_prefix(self):
         base="https://ai.duodianqian.cn/work-os"

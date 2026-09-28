@@ -302,7 +302,9 @@ def _clip_source(source: Path, segment: dict, scratch: Path, jid: str, ffmpeg: s
     pending=target.with_suffix(".part.mp4")
     pending.unlink(missing_ok=True)
     portrait=source_probe["frame_orientation"]=="竖屏"
-    video_filter="scale=480:-2,fps=24" if portrait else "scale=-2:480,fps=24"
+    video_filter=(("scale=1080:-2,fps=30" if portrait else "scale=-2:1080,fps=30")
+                  if segment.get("video_edit") else
+                  ("scale=480:-2,fps=24" if portrait else "scale=-2:480,fps=24"))
     command=[ffmpeg,"-nostdin","-hide_banner","-loglevel","error","-ss",f"{start:.3f}",
              "-i",str(source),"-t",f"{end-start:.3f}","-map","0:v:0","-an","-c:v","libx264",
              "-vf",video_filter,"-preset","veryfast","-crf","20","-pix_fmt","yuv420p","-movflags","+faststart",
@@ -367,7 +369,7 @@ def _media_segments(spec: dict) -> list[dict]:
                    "prompt":spec.get("prompt"),"use_original":True}]
     if not isinstance(segments,list) or not 1<=len(segments)<=20:
         raise ValueError("工作台未给出完整的分段生成计划")
-    if spec.get("generation_mode") not in {"preview","complete"}:
+    if spec.get("generation_mode") not in {"preview","complete","edit_trial"}:
         raise ValueError("视频生成方式未获批准")
     if spec.get("resolution") not in {"480p","720p","1080p"} or spec.get("ratio") not in {
         "16:9","9:16","1:1","4:3","3:4","21:9","9:21","adaptive"}:
@@ -397,9 +399,12 @@ def _media_segments(spec: dict) -> list[dict]:
         raise ValueError("视频分段总时长或费用与核价单不一致")
     if spec["generation_mode"]=="preview" and (len(segments)!=1 or target!=5):
         raise ValueError("5 秒试拍片的分段规格无效")
-    if spec["generation_mode"]=="complete" and spec.get("video_urls"):
+    if spec["generation_mode"] in {"complete","edit_trial"} and spec.get("video_urls"):
         raise ValueError("完整视频任务禁止把原片直接作为供应商参考")
-    if spec["generation_mode"]=="complete" and len(segments)<2 and target>30:
+    if spec["generation_mode"]=="edit_trial" and (spec.get("model_alias")!="sd2.5" or
+            spec.get("provider")!="runy" or len(spec.get("image_urls") or [])!=2):
+        raise ValueError("视频编辑试拍需要润元 Seedance 2.5、老师场景图和独立背景图")
+    if spec["generation_mode"] in {"complete","edit_trial"} and len(segments)<2 and target>30:
         raise ValueError("完整视频超过单次生成时长却没有分段")
     return segments
 
@@ -570,7 +575,7 @@ def run_once(config: dict):
                 raise ValueError("历史任务的平台或模型无效")
             if spec["status"]=="queued" and resolve(spec["model_alias"])!=route:
                 raise ValueError("当前平台路由已变化；新任务未提交供应商")
-            ffmpeg=_ffmpeg_binary(config) if spec["generation_mode"]=="complete" else None
+            ffmpeg=_ffmpeg_binary(config) if spec["generation_mode"] in {"complete","edit_trial"} else None
             ledger_id=spec.get("local_job_id")
             if not ledger_id:
                 job=workflow_request("POST","/api/jobs",{
@@ -602,7 +607,7 @@ def run_once(config: dict):
 
             # For a fresh complete job, prepare and upload every short reference
             # before charging for segment one. A bad later clip blocks all POSTs.
-            if not any(saved_rows.values()) and (spec["status"]=="queued" or spec["generation_mode"]=="complete") and all(
+            if not any(saved_rows.values()) and (spec["status"]=="queued" or spec["generation_mode"] in {"complete","edit_trial"}) and all(
                     not _segment_intent(scratch,jid,s).exists() for s in segments):
                 for segment in segments:
                     prepared_urls[segment["index"]]=prepare_reference(segment)
@@ -634,8 +639,11 @@ def run_once(config: dict):
                              "request_key":segment["request_key"],
                              "quoted_cost_cny":segment["reserved_cost"],"budget_cny":spec["reserved_cost"],
                              "quote_source":spec["quote_source"],"model":spec["model_alias"],
-                             "provider_name":spec["provider"],"duration":segment["duration"],
-                             "resolution":spec["resolution"],"ratio":spec["ratio"],"generate_audio":False,
+                             "provider_name":spec["provider"],
+                             "duration":-1 if spec["generation_mode"]=="edit_trial" else segment["duration"],
+                             "resolution":spec["resolution"],
+                             "ratio":"adaptive" if spec["generation_mode"]=="edit_trial" else spec["ratio"],
+                             "generate_audio":False,
                              "image_urls":spec["image_urls"],"video_urls":[reference_url]}
                     _write_segment_intent(intent,segment,payload)
                     active_key=segment["request_key"];submitted_attempt=True
@@ -689,7 +697,7 @@ def run_once(config: dict):
                 progress[index]["status"]="downloaded"
                 rows.append(media_row);paths.append(path)
             if stopped:continue
-            if spec["generation_mode"]=="complete":
+            if spec["generation_mode"] in {"complete","edit_trial"}:
                 path=_assemble_segments(paths,segments,spec,ledger_id,jid,ffmpeg)
             else:path=paths[0]
             _report(url,token,"media",jid,{"status":"technical_check","local_job_id":ledger_id,
