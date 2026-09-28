@@ -299,6 +299,7 @@
     return `<article class="mw-candidate" data-ref-start="${e(referenceStart)}" data-ref-end="${e(referenceEnd)}"><div class="row between"><strong>${e(videoLabel(m.asset_type))} · 第 ${index+1} 个视频 · V${index+1} · ${e(modelName)}${m.generation_mode==='preview'?' · 5 秒样片':m.generation_mode==='edit_trial'?' · 视频编辑试拍':''}</strong>${pill(m.status)}</div>
       ${m.candidate_asset_id?`<div class="mw-compare"><div><span>真人动作 · V${e(ref?.version||'?')} · ${seconds(referenceStart)}–${seconds(referenceEnd)}</span>${video(ref?.video_asset_id,'mw-ref')}</div><div><span>数字老师 · 第 ${index+1} 个视频</span>${video(m.candidate_asset_id,'mw-generated')}</div></div><div class="mw-player-controls">${button('从片段开始同时播放','sync-start',m.id)}${button('同时播放 / 暂停','sync',m.id)}${button('按真人进度定位','seek',m.id)}</div>`:'<p class="muted">候选生成完成后自动回传。可刷新查看；提交状态未知时不会自动重提。</p>'}
       <div class="mw-meta">${e(modelName)} · ${e(m.duration)} 秒 · ${e(m.resolution)} ${manager?`· 技术检查 ${pill(result)}`:''} · 预留费用 ${m.reserved_cost==null?'待核验':'¥'+Number(m.reserved_cost).toFixed(2)} · 实际费用 ${m.actual_cost==null?'待账单核验':'¥'+Number(m.actual_cost).toFixed(2)} ${manager&&m.provider?'· Provider '+e(m.provider)+' / '+e(m.model):''}${manager&&m.provider_job_id?' · 任务 '+e(m.provider_job_id):''}${m.background_ref?.asset_id?` · 练功背景 V${e(m.background_ref.version)}：${e(m.background_ref.name)}`:''}</div>
+      ${m.prompt?`<details class="mw-collapsible"><summary>查看这版实际提交的提示词</summary><pre class="mw-prompt-text">${e(m.prompt)}</pre></details>`:''}
       ${m.error?`<p class="mw-error">${e(m.error)}</p>`:''}${selected?`<p>已选用：${e(m.selection.reason)}</p>`:''}
       ${mode==='compare'&&m.status==='succeeded'&&!selected&&state.user.martial_specialist?button('选用这个视频','select',m.id,'primary'):''}
       ${mode==='qc'&&selected&&!qc&&state.user.martial_specialist?`<form class="mw-form" data-martial-form="qc" data-id="${e(m.id)}"><h4>动作验收</h4><p class="muted">逐项对照真人动作。确认适合教学后可通过；有明显问题请选择需要返修并标记时间段。</p><div class="mw-qc-checks">${QC_CHECKS.map(([key,label])=>`<label>${label}<select name="check_${key}" required><option value="unsure">待核对</option><option value="pass">符合</option><option value="fail">需要修改</option></select></label>`).join('')}</div><h4>问题时间段</h4><div class="mw-issue-list"></div>${button('添加问题区间','add-issue',m.id)}<p class="muted">可在视频中定位后点击添加；时间和问题可以修改。</p>${field('真人动作对照结论','reference_comparison','',true)}${field('验收意见 / 返修要求','findings','',true)}<label>验收结论<select name="verdict" required><option value="">请选择</option><option value="pass">通过</option><option value="revision_required">需要返修</option></select></label><label><input type="checkbox" name="major_dispute"> 存在重大质量争议，需要负责人验收</label><button class="primary">保存验收结果</button></form>`:''}
@@ -340,9 +341,13 @@
     if(!ref)return 2;
     if(videoKinds.some(([type])=>!lockedRefs.some(item=>item.id===plans?.[type]?.motion_ref_id)))return 3;
     if(!pkg||pkg.status!=='complete')return 4;
-    const unfinished=videoKinds.map(([type])=>type).filter(type=>!finals.some(x=>x.asset_type===type&&x.status==='active'));
-    if(unfinished.some(type=>!media.some(x=>x.asset_type===type&&x.candidate_asset_id&&x.generation_mode==='complete')))return 5;
-    if(unfinished.some(type=>!media.some(x=>x.asset_type===type&&x.selection&&x.generation_mode==='complete')))return 6;
+    const latest=type=>media.find(x=>x.asset_type===type&&x.generation_mode==='complete');
+    const unfinished=videoKinds.map(([type])=>type).filter(type=>{
+      const final=finals.find(x=>x.asset_type===type&&x.status==='active'),job=latest(type);
+      return !final||(job&&job.id!==final.media_job_id&&job.status!=='failed');
+    });
+    if(unfinished.some(type=>!latest(type)?.candidate_asset_id))return 5;
+    if(unfinished.some(type=>!latest(type)?.selection))return 6;
     return 7;
   }
   function moveStepper(current,maxReachable=current){
@@ -352,14 +357,14 @@
     }).join('')}</nav>`;
   }
   function videoPlanCard(type,plan,refs,moveId){
-    const ref=refs.find(item=>item.id===plan?.motion_ref_id)||refs[0];
+    const ref=M.sourceReplacementTrack===type?refs[0]:refs.find(item=>item.id===plan?.motion_ref_id)||refs[0];
     const label=videoLabel(type),current=!!plan&&plan.motion_ref_id===ref?.id;
     const start=Number(ref?.start_time)||0,end=Number(ref?.end_time??ref?.duration)||0;
     const plannedStart=current?plan.source_start:start,plannedEnd=current?plan.source_end:end;
     const plannedDuration=current?plan.target_duration:Math.max(0,end-start);
     const segmentLength=Math.round((Number(plannedEnd)-Number(plannedStart))*100)/100;
     const mismatch=current&&Math.abs(Number(plannedDuration)-segmentLength)>0.02;
-    return `<article class="mw-video-track"><div class="row between"><h4>${e(label)}</h4>${current?pill('confirmed'):pill('draft')}</div><p>${type==='teaching'?'单独讲清动作要领并示范；可与跟练采用不同真人视频。':'单独供学员跟随教练重复动作；可与讲解采用不同真人视频。'}</p><form class="mw-form" data-martial-form="video-plan" data-id="${e(moveId)}" data-video-track="${e(type)}" data-segment-length="${e(segmentLength)}" data-saved-plan="${current?'true':'false'}"><input type="hidden" name="asset_type" value="${e(type)}"><label>本条视频使用的真人参考<select name="motion_ref_id" required>${refs.map(item=>`<option value="${e(item.id)}" ${item.id===ref.id?'selected':''}>V${e(item.version)} · ${e(item.asset_name||item.video_asset_id)} · ${seconds(item.start_time)}–${seconds(item.end_time??item.duration)}</option>`).join('')}</select></label>${video(ref.video_asset_id,'mw-main-video mw-plan-player')}<div class="form-grid"><label>参考开始（秒）<input type="number" name="source_start" min="0" step="0.01" value="${e(plannedStart)}" required></label><label>参考结束（秒）<input type="number" name="source_end" min="0.01" step="0.01" value="${e(plannedEnd)}" required></label><label>计划成片时长（秒）<input type="number" name="target_duration" min="0.01" step="0.01" value="${e(Number(plannedDuration).toFixed(2))}" required></label></div><div class="mw-definition-grid"><div><b>所选真人片段实长</b><span data-plan-length>${seconds(segmentLength)}</span></div><div><b>计划成片时长</b><span data-plan-target>${seconds(plannedDuration)}</span></div></div><p class="mw-error" data-plan-mismatch ${mismatch?'':'hidden'}>${mismatch?`已保存的成片时长 ${seconds(plannedDuration)} 与片段实长 ${seconds(segmentLength)} 不同。请核对是否有意重复或延长；原方案不会自动改写。`:''}</p><div class="mw-plan-controls">${button('此刻设为开始','plan-start')}${button('此刻设为结束','plan-end')}${button('播放所选片段','plan-play')}${button('按片段长度填写','plan-use-length')}</div><label>必须保留的内容（选填）<textarea name="brief" rows="3" maxlength="800" placeholder="例如：保留原片的动作顺序、重复次数和节奏">${e(current?plan.brief||'':'')}</textarea></label><button class="primary" type="submit">${current?'保存新版 '+label+'方案':'保存 '+label+'方案'}</button></form><small>${current?`已保存 V${e(plan.version)} · 真人参考 V${e(ref.version)} · 片段 ${seconds(plan.source_start)}–${seconds(plan.source_end)} · 计划成片 ${seconds(plan.target_duration)}`:'保存本条视频方案后，再让 AI 准备。'}第 5 步会按当前方案列出完整制作的分段和费用预估。</small></article>`;
+    return `<article class="mw-video-track"><div class="row between"><h4>${e(label)}</h4>${current?pill('confirmed'):pill('draft')}</div><p>${type==='teaching'?'单独讲清动作要领并示范；可与跟练采用不同真人视频。':'单独供学员跟随教练重复动作；可与讲解采用不同真人视频。'}</p><form class="mw-form" data-martial-form="video-plan" data-id="${e(moveId)}" data-video-track="${e(type)}" data-segment-length="${e(segmentLength)}" data-saved-plan="${current?'true':'false'}"><input type="hidden" name="asset_type" value="${e(type)}"><label>本条视频使用的真人参考<select name="motion_ref_id" required>${refs.map(item=>`<option value="${e(item.id)}" ${item.id===ref.id?'selected':''}>V${e(item.version)} · ${e(item.asset_name||item.video_asset_id)} · ${seconds(item.start_time)}–${seconds(item.end_time??item.duration)}</option>`).join('')}</select></label>${video(ref.video_asset_id,'mw-main-video mw-plan-player')}<div class="form-grid"><label>参考开始（秒）<input type="number" name="source_start" min="0" step="0.01" value="${e(plannedStart)}" required></label><label>参考结束（秒）<input type="number" name="source_end" min="0.01" step="0.01" value="${e(plannedEnd)}" required></label><label>计划成片时长（秒）<input type="number" name="target_duration" min="0.01" step="0.01" value="${e(Number(plannedDuration).toFixed(2))}" required></label></div><div class="mw-definition-grid"><div><b>所选真人片段实长</b><span data-plan-length>${seconds(segmentLength)}</span></div><div><b>计划成片时长</b><span data-plan-target>${seconds(plannedDuration)}</span></div></div><p class="mw-error" data-plan-mismatch ${mismatch?'':'hidden'}>${mismatch?`已保存的成片时长 ${seconds(plannedDuration)} 与片段实长 ${seconds(segmentLength)} 不同。请核对是否有意重复或延长；原方案不会自动改写。`:''}</p><div class="mw-plan-controls">${button('此刻设为开始','plan-start')}${button('此刻设为结束','plan-end')}${button('播放所选片段','plan-play')}${button('按片段长度填写','plan-use-length')}</div><label>必须保留的内容（选填）<textarea name="brief" rows="3" maxlength="800" placeholder="例如：保留原片的动作顺序、重复次数和节奏">${e(plan?.brief||'')}</textarea></label><button class="primary" type="submit">${current?'保存新版 '+label+'方案':'保存 '+label+'方案'}</button></form><small>${current?`已保存 V${e(plan.version)} · 真人参考 V${e(ref.version)} · 片段 ${seconds(plan.source_start)}–${seconds(plan.source_end)} · 计划成片 ${seconds(plan.target_duration)}`:'保存本条视频方案后，再让 AI 准备。'}第 5 步会按当前方案列出完整制作的分段和费用预估。</small></article>`;
   }
   function syncVideoPlan(form,boundsChanged=false){
     const start=Number.parseFloat(form.elements.source_start.value),end=Number.parseFloat(form.elements.source_end.value);
@@ -412,7 +417,7 @@
     const version=state.routeVersion;
     clearTimeout(M.prepareTimer);M.prepareTimer=null;
     clearTimeout(M.mediaTimer);M.mediaTimer=null;
-    if(M.lastMove!==id){M.lastMove=id;M.moveStepOverride=null}
+    if(M.lastMove!==id){M.lastMove=id;M.moveStepOverride=null;M.sourceReplacementTrack=null}
     const [d,o,mm,available]=await Promise.all([api('/api/martial/moves/'+id),overview(),
       api('/api/martial/moves/'+id+'/multimodal').catch(()=>null),cachedAssets('/api/martial/available-assets').catch(()=>({assets:[]}))]);
     if(!routeIsCurrent(version))return;
@@ -435,7 +440,7 @@
     const step=M.moveStepOverride||current;
     const canProduce=canEdit(),missing=pkg?.result?.missing_inputs||[];
     const allFinished=videoKinds.every(([type])=>activeFinals.some(x=>x.asset_type===type));
-    const hasRevision=videoKinds.some(([type])=>{if(activeFinals.some(final=>final.asset_type===type))return false;const latest=currentMedia.find(x=>x.asset_type===type&&x.generation_mode==='complete'&&x.candidate_asset_id);return latest?.qc?.some(q=>q.stage==='martial'&&q.result==='fail')});
+    const hasRevision=videoKinds.some(([type])=>{const final=activeFinals.find(x=>x.asset_type===type),latest=currentMedia.find(x=>x.asset_type===type&&x.generation_mode==='complete'&&x.candidate_asset_id);return latest?.id!==final?.media_job_id&&latest?.qc?.some(q=>q.stage==='martial'&&q.result==='fail')});
     const standard=panel('动作标准',`<div class="mw-definition-grid">${[['中文动作',p.chinese_action],['英文动作',p.english_action],['中文教学提示',p.chinese_coaching],['英文教学提示',p.english_coaching],['呼吸提示',p.breathing_notes],['安全提示',p.safety_notes]].map(([label,value])=>`<div><b>${label}</b><span>${val(value)}</span></div>`).join('')}</div>${canProduce?`${!factsReady?button('编辑动作标准','open-standard',id,'primary'):''}<details class="mw-collapsible ${!factsReady?'mw-incomplete':''}" id="mw-standard-editor"><summary>编辑动作标准</summary><form class="mw-form" data-martial-form="standard" data-id="${e(id)}"><div class="form-grid">${[['中文名称','chinese_name'],['英文名称','english_name'],['中文动作','chinese_action'],['英文动作','english_action'],['中文教学提示','chinese_coaching'],['英文教学提示','english_coaching'],['呼吸提示','breathing_notes'],['安全提示','safety_notes']].map(([label,key])=>field(label,key,p[key]||'',!['chinese_name','english_name'].includes(key))).join('')}</div><button class="primary" type="submit">保存新版本</button></form><p class="muted">每次保存都会留下旧版本。若与已经完成的正式作品有重大冲突，系统会提示负责人确认。</p></details>`:''}`);
     const motion=panel('上传真人动作',`${lockedRefs.map(item=>`<div class="mw-existing-reference">${video(item.video_asset_id,'mw-main-video')}<p>已确认真人动作 · V${e(item.version)} · ${e(item.asset_name||item.video_asset_id)} · ${seconds(item.duration)}</p></div>`).join('')}<form class="mw-form" data-martial-form="motion" data-id="${e(id)}"><label>选择真人示范视频（MP4 / MOV，保留原片）<input type="file" name="file" accept=".mp4,.mov,video/mp4,video/quicktime" required></label><div class="mw-local-preview hidden"><video class="mw-preview-video" controls preload="metadata"></video><div class="mw-video-meta"></div></div><input type="hidden" name="orientation" value="正面"><button class="primary" type="submit">上传真人动作</button><p class="mw-upload-progress" role="status" hidden></p></form><p class="muted">讲解与跟练可以各上传一条真人视频。每条上传后确认参考片段，再为两类视频分别选用。正式动作仍须武术人员验收。</p>`,'mw-media-panel');
     const rangeControls=`<div class="mw-range"><strong>选择参考片段</strong><label>开始（秒）<input name="start_time" type="number" min="0" step="0.01" value="${e(draft?.start_time??0)}"></label><label>结束（秒）<input name="end_time" type="number" min="0" step="0.01" value="${e(draft?.end_time??draft?.duration??'')}"></label>${button('设为开始','range-start')}${button('设为结束','range-end')}${button('播放选中片段','range-play')}</div><p class="muted">默认使用整段视频；只有需要截取时才调整起止时间。</p><div class="form-grid"><label>画面方向<select name="orientation"><option value="正面" ${!draft?.orientation||draft.orientation==='正面'?'selected':''}>正面</option><option value="侧面" ${draft?.orientation==='侧面'?'selected':''}>侧面</option><option value="背面" ${draft?.orientation==='背面'?'selected':''}>背面</option><option value="其他" ${draft?.orientation==='其他'?'selected':''}>其他</option></select></label>${field('起始姿态（选填）','start_pose',draft?.start_pose||'',true)}${field('结束姿态（选填）','end_pose',draft?.end_pose||'',true)}${field('备注（选填）','notes',draft?.notes||'',true)}</div><div class="mw-key-moments"><strong>关键动作（选填）</strong><div class="mw-moment-list">${(draft?.key_moments||[]).map(x=>`<div class="mw-moment-item" data-time="${e(x.time)}"><span>${seconds(x.time)} · ${e(x.label)}</span><input type="hidden" data-moment-label value="${e(x.label)}">${button('移除','remove-moment')}</div>`).join('')}</div><div class="mw-moment-input"><label>动作描述<input name="moment_label" placeholder="播放到动作发生时，例如：翻掌"></label>${button('添加关键动作','add-moment')}</div></div>`;
@@ -450,15 +455,15 @@
     const videoTrack=([type,label])=>{
       const plan=plans[type],jobs=currentMedia.filter(x=>x.asset_type===type),completeJobs=jobs.filter(x=>x.generation_mode==='complete');
       const completeJob=completeJobs[0],activeJob=completeJobs.find(x=>inProgress(x.status));
-      const candidate=completeJobs.find(x=>x.candidate_asset_id),preview=jobs.find(x=>x.generation_mode==='preview'&&x.candidate_asset_id);
+      const candidate=completeJob?.candidate_asset_id?completeJob:null,preview=jobs.find(x=>x.generation_mode==='preview'&&x.candidate_asset_id);
       const final=activeFinals.find(x=>x.asset_type===type);
       const segmentLength=plan?Math.round((Number(plan.source_end)-Number(plan.source_start))*100)/100:null;
       const mismatch=plan&&Math.abs(Number(plan.target_duration)-segmentLength)>0.02;
-      const progress=final?'正式视频已完成':candidate?'完整视频已回传，待动作验收':activeJob?words[activeJob.status]||'制作中':completeJob?.status==='failed'?'制作失败，可核对原因后重新发起':completeJob?.status==='unknown_submission'?'提交状态未知，待后台核对':'待制作';
+      const progress=activeJob?words[activeJob.status]||'新版制作中':completeJob?.candidate_asset_id&&completeJob.id!==final?.media_job_id?'新版已回传，待动作验收':final?'正式视频已完成':candidate?'完整视频已回传，待动作验收':completeJob?.status==='failed'?'制作失败，可核对原因后重新发起':completeJob?.status==='unknown_submission'?'提交状态未知，待后台核对':'待制作';
       const reportedSegments=listValue(completeJob?.segment_progress),plannedSegments=listValue(completeJob?.segments);
       const segmentRows=(plannedSegments.length?plannedSegments:reportedSegments).map((segment,index)=>({...segment,...(reportedSegments.find(item=>Number(item.index)===Number(segment.index??index))||{})}));
       const segmentProgress=segmentRows.length?`<ol class="mw-segment-progress">${segmentRows.map((segment,index)=>`<li><span>第 ${e(Number.isFinite(Number(segment.index))?Number(segment.index)+1:index+1)} 段 · ${seconds(segment.source_start)}–${seconds(segment.source_end)}</span>${pill(segment.status||(completeJob.status==='succeeded'?'succeeded':'not_started'))}${segment.error?`<small class="mw-error">${e(segment.error)}</small>`:''}</li>`).join('')}</ol>`:'';
-      const form=canProduce&&pkg?`<form class="mw-form mw-complete-form" data-martial-form="generate" data-video-track="${e(type)}" data-generation-mode="complete" data-has-active="${activeJob?'true':'false'}" data-has-unknown="${completeJobs.some(x=>x.status==='unknown_submission')?'true':'false'}" data-has-final="${final?'true':'false'}" data-has-candidate="${candidate?'true':'false'}" data-id="${e(id)}"><input type="hidden" name="asset_type" value="${e(type)}"><input type="hidden" name="generation_mode" value="complete"><input type="hidden" name="model" value="sd2.5"><input type="hidden" name="candidate_count" value="1"><input type="hidden" name="revision_of" value=""><div id="mw-quote-${e(type)}-complete" class="mw-quote mw-complete-quote" role="status">正在计算完整视频的分段与费用预留…</div><button class="primary" type="submit" disabled>${activeJob?'完整视频制作中':`制作${e(label)}完整视频`}</button></form>`:'<p class="mw-filter-note">请先完成当前两类视频的 AI 准备，再核对完整制作费用。</p>';
+      const form=canProduce&&pkg?`<form class="mw-form mw-complete-form" data-martial-form="generate" data-video-track="${e(type)}" data-generation-mode="complete" data-has-active="${activeJob?'true':'false'}" data-has-unknown="${completeJobs.some(x=>x.status==='unknown_submission')?'true':'false'}" data-has-final="${final?'true':'false'}" data-has-candidate="${candidate?'true':'false'}" data-id="${e(id)}"><input type="hidden" name="asset_type" value="${e(type)}"><input type="hidden" name="generation_mode" value="complete"><input type="hidden" name="model" value="sd2.5"><input type="hidden" name="candidate_count" value="1"><input type="hidden" name="revision_of" value=""><label>本次修正提示词（只影响${e(label)}新版视频）<textarea name="prompt_adjustment" rows="5" maxlength="1500" placeholder="例如：动作逐时刻跟随真人视频；地板保持图片 2 的材质和平面，不变成山峰；整体亮度保持图片 2，不压暗。">${e(completeJob?.prompt_adjustment||'')}</textarea></label><small>这里写入的文字会加入本次实际提交给 Seedance 的提示词。模型接收当前练功背景图，不会自动看到跟练成片；请先核对第 5 步显示的背景版本。真人动作和老师身份仍由参考素材锁定。</small>${completeJob?.prompt?`<details class="mw-collapsible"><summary>查看上一版实际提交提示词</summary><pre class="mw-prompt-text">${e(completeJob.prompt)}</pre></details>`:''}<div id="mw-quote-${e(type)}-complete" class="mw-quote mw-complete-quote" role="status">正在计算完整视频的分段与费用预留…</div><button class="primary" type="submit" disabled>${activeJob?'完整视频制作中':`制作${e(label)}完整视频`}</button></form>`:'<p class="mw-filter-note">请先完成当前两类视频的 AI 准备，再核对完整制作费用。</p>';
       const previewForm=canProduce&&pkg?`<details class="mw-collapsible mw-preview-options" data-preview-options="${e(type)}"><summary>可选：先做 5 秒试拍样片</summary><p class="muted">样片只用于检查角色与画面，不能作为完整作品验收。</p><form class="mw-form" data-martial-form="generate" data-video-track="${e(type)}" data-generation-mode="preview" data-id="${e(id)}"><input type="hidden" name="asset_type" value="${e(type)}"><input type="hidden" name="generation_mode" value="preview"><input type="hidden" name="model" value="sd2.5"><input type="hidden" name="candidate_count" value="1"><input type="hidden" name="revision_of" value=""><div id="mw-quote-${e(type)}-preview" class="mw-quote" role="status">打开后读取样片费用…</div><button class="outline" type="submit" disabled>生成 5 秒试拍样片</button></form>${preview?`<div class="mw-preview-result">${video(preview.candidate_asset_id,'mw-main-video')}</div>`:''}</details>`:'';
       const trialJobs=jobs.filter(x=>x.generation_mode==='edit_trial');
       const trialForm=canProduce&&pkg?`<details class="mw-collapsible mw-preview-options" data-edit-trial-options="${e(type)}"><summary>视频编辑试拍 · 真人动作与武术背景</summary><p class="muted">使用教学包中两张试拍参考图；真人视频只负责动作和时序。试拍结果不能选用或定版为正式作品，正式教学包仍按岗位验收。</p><form class="mw-form" data-martial-form="generate" data-video-track="${e(type)}" data-generation-mode="edit_trial" data-id="${e(id)}"><input type="hidden" name="asset_type" value="${e(type)}"><input type="hidden" name="generation_mode" value="edit_trial"><input type="hidden" name="model" value="sd2.5"><input type="hidden" name="candidate_count" value="1"><label>自然切点（原片秒数；不超过 30 秒时留空）<input name="cut_points" value="${id==='mv_flowing_cloud_01'&&type==='teaching'?'12':''}" placeholder="例如 12；多个切点用英文逗号分隔"></label><div id="mw-quote-${e(type)}-edit_trial" class="mw-quote" role="status">打开后核对试拍参考、切点与费用…</div><button class="outline" type="submit" disabled>制作${e(label)}视频编辑试拍</button></form>${trialJobs.map(x=>mediaCard(x,ref,isManager(),d.media.indexOf(x),'history')).join('')}</details>`:'';
@@ -471,11 +476,14 @@
     const parts=[standard,motion,range,ai,digital,comparison,qc];
     const config=pkg?`<dialog id="mw-config-dialog" class="mw-dialog"><div class="row between"><h3>AI 准备的教学与动作建议</h3>${button('关闭','close-config')}</div><p>这里展示教学与动作建议。视频提交时，系统另行拼入当前练功背景及流云动态要求；第 5 步显示实际费用预估。</p><div class="mw-ai-detail">${[['生成说明','move_summary'],['讲解演示 Prompt','teaching_prompt'],['跟教练跟练 Prompt','practice_prompt'],['禁止项','negative_constraints'],['使用素材','reference_mapping'],['模型建议','shot_camera_plan']].map(([label,key])=>`<section><h4>${label}</h4>${block(aiDetails[key])}</section>`).join('')}</div>${button('复制生成内容','copy-config')}</dialog>`:'';
     const admin=isManager()?`<details class="mw-panel mw-collapsible"><summary>管理员高级信息</summary><h4>版本记录</h4>${d.versions.map(x=>`<div class="mw-version">V${e(x.version)} ${pill(x.status)} <small>${e(x.source_ref)}</small></div>`).join('')}${button('查看技术历史','audit-history',id)}<div id="mw-technical-history"></div></details>`:'';
-    const currentLabel=hasRevision?'需要返修':allFinished?'已完成':current===7?'动作验收':MOVE_STEPS[current-1];
-    const nextText=hasRevision?'查看对应视频的修改要求，决定何时重新生成':allFinished?'讲解演示和跟教练跟练均已形成正式作品':current===4?(packagePending?'AI 正在准备，完成后自动显示下一步':aiReady?'点击让 AI 分别准备两类视频':aiBlocker):['请核对并完善动作标准','上传这招的真人动作视频','分别保存两类视频方案','','核对讲解与跟练的分段和预计费用后，分别开始完整制作','对照真人动作并选择视频','分别完成动作验收'][current-1];
+    const remaking=videoKinds.some(([type])=>{const final=activeFinals.find(x=>x.asset_type===type),job=currentMedia.find(x=>x.asset_type===type&&x.generation_mode==='complete');return final&&job&&job.id!==final.media_job_id&&job.status!=='failed'});
+    const currentLabel=hasRevision?'需要返修':remaking?(current===5?'新版制作中':current===6?'新版待选择':'新版待验收'):allFinished?'已完成':current===7?'动作验收':MOVE_STEPS[current-1];
+    const nextText=hasRevision?'查看对应视频的修改要求，决定何时重新生成':remaking?'旧正式视频仍保留；请继续核对新版并完成动作验收':allFinished?'讲解演示和跟教练跟练均已形成正式作品':current===4?(packagePending?'AI 正在准备，完成后自动显示下一步':aiReady?'点击让 AI 分别准备两类视频':aiBlocker):['请核对并完善动作标准','上传这招的真人动作视频','分别保存两类视频方案','','核对讲解与跟练的分段和预计费用后，分别开始完整制作','对照真人动作并选择视频','分别完成动作验收'][current-1];
+    const optimizeTypes=videoKinds.filter(([type])=>currentMedia.some(job=>job.asset_type===type&&job.generation_mode==='complete'));
+    const optimize=canProduce&&optimizeTypes.length?panel('优化单条视频',`<p>只改提示词：进入该视频制作卡片，填写本次修正提示词，核对费用后生成新版。更换真人素材：上传并确认新视频，再到第 3 步只更新对应视频方案。旧成片保留到新版通过验收并定版。</p><div class="mw-optimize-rows">${optimizeTypes.map(([type,label])=>`<div><strong>${e(label)}</strong>${pkg?button('改提示词并生成新版','optimize-prompt',type):''}${button('更换真人视频素材','optimize-source',type)}</div>`).join('')}</div>`):'';
     const maxReachable=currentMedia.some(x=>x.generation_mode==='complete'&&x.selection)?7:currentMedia.some(x=>x.generation_mode==='complete'&&x.candidate_asset_id)?6:current;
     const history=historicalMedia.length?`<details class="mw-panel mw-collapsible"><summary>历史视频与验收（${historicalMedia.length}）</summary><p class="muted">这些视频使用的是旧真人参考或旧制作方案，保留原记录；不会被算作当前两类视频的完成结果。</p>${historicalMedia.map(x=>mediaCard(x,d.motions.find(y=>y.id===x.motion_ref_id),isManager(),d.media.indexOf(x),'history')).join('')}</details>`:'';
-    layout(name,`万象武境 / ${d.art.chinese_name} / ${name}`,`<div class="mw-page-head mw-move-head"><div><span class="eyebrow">${e(d.art.chinese_name)} / 第 ${String(siblings[at]?.display_order||m.ordinal).padStart(2,'0')} 式</span><h2>${e(name)}</h2><p>当前：${e(currentLabel)}</p></div><div class="mw-header-actions">${at>0?plainLink('← 上一式','martial:move:'+siblings[at-1].id):''}${at<siblings.length-1?plainLink('下一式 →','martial:move:'+siblings[at+1].id):''}</div></div>${moveAssetSummary(mm,id,available)}${moveStepper(current,maxReachable)}<div class="mw-next-work"><strong>下一步：${e(currentLabel)}</strong><span>${e(nextText)}</span></div>${parts.map((html,i)=>`<section class="mw-step-panel" data-mw-step-panel="${i+1}" ${i+1===step?'':'hidden'}>${html}</section>`).join('')}${history}${admin}${config}`,link('返回功法','martial:art:'+d.art.id));
+    layout(name,`万象武境 / ${d.art.chinese_name} / ${name}`,`<div class="mw-page-head mw-move-head"><div><span class="eyebrow">${e(d.art.chinese_name)} / 第 ${String(siblings[at]?.display_order||m.ordinal).padStart(2,'0')} 式</span><h2>${e(name)}</h2><p>当前：${e(currentLabel)}</p></div><div class="mw-header-actions">${at>0?plainLink('← 上一式','martial:move:'+siblings[at-1].id):''}${at<siblings.length-1?plainLink('下一式 →','martial:move:'+siblings[at+1].id):''}</div></div>${moveAssetSummary(mm,id,available)}${moveStepper(current,maxReachable)}<div class="mw-next-work"><strong>下一步：${e(currentLabel)}</strong><span>${e(nextText)}</span></div>${optimize}${parts.map((html,i)=>`<section class="mw-step-panel" data-mw-step-panel="${i+1}" ${i+1===step?'':'hidden'}>${html}</section>`).join('')}${history}${admin}${config}`,link('返回功法','martial:art:'+d.art.id));
     if(packagePending&&!pkg)schedulePreparationRefresh(state.view);
     if(canProduce&&pkg)videoKinds.forEach(([type])=>refreshQuote(id,type,'complete'));
     if(currentMedia.some(job=>inProgress(job.status)))scheduleMediaRefresh(state.view);
@@ -511,17 +519,17 @@
       const q=await api(`/api/martial/quote?move=${encodeURIComponent(id)}&model=${encodeURIComponent(model)}&count=${encodeURIComponent(count)}&generation_mode=${encodeURIComponent(mode)}&asset_type=${encodeURIComponent(type)}&cut_points=${encodeURIComponent(cutPoints)}`);
       if(f!==$(selector)||f.elements.model.value!==model||f.elements.candidate_count.value!==count||(f.elements.cut_points?.value.trim()||'')!==cutPoints)return;
       cache[type]=q;
-      const taskReady=['assigned','in_progress'].includes(M.task?.status),taskAssigned=M.task?.assignee_id===state.user.id;
+      const taskReady=['assigned','in_progress'].includes(M.task?.status)||(mode==='complete'&&M.task?.status==='accepted'),taskAssigned=M.task?.assignee_id===state.user.id;
       const missing=!!M.detail?.packages?.find(x=>x.status==='complete')?.result?.missing_inputs?.length;
       const active=mode==='complete'&&f.dataset.hasActive==='true';
       const unknown=mode==='complete'&&f.dataset.hasUnknown==='true',final=mode==='complete'&&f.dataset.hasFinal==='true';
-      const reason=q.blocked?employeeText(q.block_reason||'当前制作条件未满足'):!taskReady?'当前任务状态暂不能生成':!taskAssigned?'这招由指定员工制作，当前账号不能发起生成':missing?'AI 准备仍缺少必要素材':active?'已有完整视频任务在制作中，请等待任务状态更新':unknown?'上次提交状态未知，后台核对前不能重复制作':final?'正式视频已完成；修改方案后才能制作新版本':null;
+      const reason=q.blocked?employeeText(q.block_reason||'当前制作条件未满足'):!taskReady?'当前任务状态暂不能生成':!taskAssigned?'这招由指定员工制作，当前账号不能发起生成':missing?'AI 准备仍缺少必要素材':active?'已有完整视频任务在制作中，请等待任务状态更新':unknown?'上次提交状态未知，后台核对前不能重复制作':null;
       const budgetText=q.budget_unlimited===true||M.task?.budget_unlimited===true?'':`已设置的本招费用余额 ${money(q.remaining_budget)}。`;
       const backgroundText=q.background_name?`练功背景：${e(q.background_name)} · V${e(q.background_version)}。只让原图流云与薄雾轻缓浮动，场景结构保持稳定。` : '';
       if(mode==='complete'){
         const segments=Array.isArray(q.segments)?q.segments:[];
         box.innerHTML=`<div class="mw-quote-head"><span>Seedance 2.5 · ${e(q.resolution||'480p')} · 预计 ${segments.length||'待定'} 段</span><strong>${q.estimated_cost==null?'费用预留待核算':`预计预留 ${money(q.estimated_cost)}`}</strong></div><ol class="mw-quote-segments">${segments.map((segment,index)=>`<li><span>第 ${e(Number.isFinite(Number(segment.index))?Number(segment.index)+1:index+1)} 段 · 真人 ${seconds(segment.source_start)}–${seconds(segment.source_end)} · 成片 ${e(segment.duration)} 秒</span><b>${money(segment.estimated_cost)}</b></li>`).join('')||'<li>分段计划待核验</li>'}</ol><small>${backgroundText}各段生成秒数向上取整，合成后按计划裁至 ${seconds(q.target_duration)}。${budgetText}${e(reason||'可按以上分段开始完整制作。')}</small>`;
-        button.textContent=active?'完整视频制作中':final?'正式视频已完成':f.dataset.hasCandidate==='true'?`再制作一版${videoLabel(type)}`:`制作${videoLabel(type)}完整视频`;
+        button.textContent=active?'完整视频制作中':final?`生成新版${videoLabel(type)}`:f.dataset.hasCandidate==='true'?`再制作一版${videoLabel(type)}`:`制作${videoLabel(type)}完整视频`;
         button.disabled=!!reason||q.estimated_cost==null||!segments.length;
         refreshTotalQuote();
       }else if(mode==='edit_trial'){
@@ -715,6 +723,18 @@
         notice('已将原片整段确认为新版真人参考；请按原片结构重新准备 AI 内容');go(state.view);return;
       }
       if(action==='jump-generate'){M.moveStepOverride=5;selectMoveTab();return}
+      if(action==='optimize-prompt'){
+        const form=$(`[data-martial-form="generate"][data-video-track="${id}"][data-generation-mode="complete"]`);
+        if(!form)throw new Error('请先完成当前视频方案的 AI 准备');
+        M.moveStepOverride=5;selectMoveTab();form.scrollIntoView({behavior:'smooth',block:'start'});
+        form.elements.prompt_adjustment?.focus();return;
+      }
+      if(action==='optimize-source'){
+        M.sourceReplacementTrack=id;
+        M.moveStepOverride=2;selectMoveTab();
+        document.querySelector('[data-mw-step-panel="2"]')?.scrollIntoView({behavior:'smooth',block:'start'});
+        notice(`上传并确认新的真人视频后，到第 3 步只更新${videoLabel(id)}方案`);return;
+      }
       if(action==='show-config'){document.querySelector('#mw-config-dialog')?.showModal();return}
       if(action==='close-config'){document.querySelector('#mw-config-dialog')?.close();return}
       if(action==='copy-config'){const content=M.detail?.packages?.find(x=>x.status==='complete')?.result||{};const body=[['生成说明','move_summary'],['讲解演示 Prompt','teaching_prompt'],['跟教练跟练 Prompt','practice_prompt'],['禁止项','negative_constraints'],['使用素材','reference_mapping'],['模型建议','shot_camera_plan']].map(([label,key])=>`${label}\n${typeof content[key]==='string'?content[key]:JSON.stringify(content[key]||'',null,2)}`).join('\n\n');await navigator.clipboard.writeText(body);notice('两类视频生成内容已复制');return}
@@ -877,7 +897,7 @@
         const cover=await coverPromise,draft=(result.motions||[]).find(ref=>ref.status==='draft');
         let coverWarning=false;
         if(cover&&draft?.id){try{await api(`/api/martial/motions/${draft.id}/cover`,{cover_base64:cover})}catch{coverWarning=true}}
-        notice(coverWarning?'真人动作已保存，封面暂未生成；请继续确认参考片段':'真人动作已保存，请确认参考片段');M.moveStepOverride=null;go(state.view);return;
+        notice(coverWarning?'真人动作已保存，封面暂未生成；请继续确认参考片段':'真人动作已保存，请确认参考片段');M.moveStepOverride=M.sourceReplacementTrack?3:null;go(state.view);return;
       }
       if(kind==='motion-range'){
         d.key_moments=[...f.querySelectorAll('.mw-moment-item')].map(row=>({time:Number(row.dataset.time),label:row.querySelector('[data-moment-label]').value})).sort((left,right)=>left.time-right.time);
@@ -887,7 +907,7 @@
         if(d.start_time!=null&&d.end_time!=null&&d.end_time<=d.start_time)throw new Error('结束时间须晚于开始时间');
         await api(`/api/martial/motions/${id}/range`,d);
         await api(`/api/martial/motions/${id}/confirm`,{});
-        notice('已确认为标准动作');M.moveStepOverride=null;go(state.view);return;
+        notice(M.sourceReplacementTrack?`已确认新真人动作；请在第 3 步更新${videoLabel(M.sourceReplacementTrack)}方案`:'已确认为标准动作');M.moveStepOverride=M.sourceReplacementTrack?3:null;go(state.view);return;
       }
       if(kind==='video-plan'){
         for(const key of ['source_start','source_end','target_duration'])d[key]=Number(d[key]);
@@ -897,6 +917,7 @@
         const result=await api(`/api/martial/moves/${id}/video-plan`,d);
         const bothReady=videoKinds.every(([type])=>result.motions?.some(item=>item.id===result.video_plans?.[type]?.motion_ref_id&&item.status==='locked'));
         notice(bothReady?'两类视频方案均已保存，可以分别让 AI 准备':`${videoLabel(d.asset_type)}方案已保存；请继续设置另一类视频`);
+        if(M.sourceReplacementTrack===d.asset_type)M.sourceReplacementTrack=null;
         M.moveStepOverride=bothReady?null:3;go(state.view);return;
       }
       if(kind==='art'){d.style_traits=d.style_traits.split('\n').map(x=>x.trim()).filter(Boolean);path=`/api/martial/arts/${id}/edit`}
@@ -920,7 +941,7 @@
         path=`/api/martial/media/${id}/qc`;
       }
       else throw new Error('未知表单');
-      await api(path,d);notice(kind==='generate'?(d.generation_mode==='complete'?'完整视频已进入后台制作；本页会更新进度':d.generation_mode==='edit_trial'?'视频编辑试拍已进入后台制作；只供动作审看':'5 秒试拍样片已进入后台制作'):kind==='budget'?'本招预算方式已保存；请重新核对完整视频的费用预留':'已保存');
+      await api(path,d);if(kind==='generate')M.moveStepOverride=null;notice(kind==='generate'?(d.generation_mode==='complete'?'完整视频已进入后台制作；本页会更新进度':d.generation_mode==='edit_trial'?'视频编辑试拍已进入后台制作；只供动作审看':'5 秒试拍样片已进入后台制作'):kind==='budget'?'本招预算方式已保存；请重新核对完整视频的费用预留':'已保存');
       if(kind==='move')go('martial:art:'+d.martial_art_id);else go(state.view);
     }catch(err){notice(err.message,true)}finally{if(b){b.disabled=false;b.removeAttribute('aria-busy');b.classList.remove('is-busy')}}
   },true);

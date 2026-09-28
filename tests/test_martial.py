@@ -203,8 +203,9 @@ class MartialTest(unittest.TestCase):
             "start_time":1,"end_time":3,"orientation":"正面","start_pose":"正身起势",
             "end_pose":"收势站定","key_moments":[{"time":2,"label":"掌势转折"}]})["motions"][0]
         m.confirm_motion(self.x,newer["id"])
-        self.assertFalse(next(row for row in m.overview(self.x)["moves"] if row["id"]==mid)["final_types"])
+        self.assertEqual(next(row for row in m.overview(self.x)["moves"] if row["id"]==mid)["final_types"],["teaching"])
         self.plan_both(mid,newer)
+        self.assertFalse(next(row for row in m.overview(self.x)["moves"] if row["id"]==mid)["final_types"])
         fresh=m.request_package(self.x,mid)
         prepared=m.package_report(fresh["id"],{"status":"complete","body":body})
         self.assertTrue(prepared["task_id"])

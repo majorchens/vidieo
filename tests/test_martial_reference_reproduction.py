@@ -105,14 +105,20 @@ class ReferenceReproductionTest(unittest.TestCase):
         martial.update_budget(self.manager,self.move_id,"unlimited")
         priced=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","teaching")
         self.assertEqual((priced["background_name"],priced["background_version"]),("training-ground.jpg",1))
+        correction="地板保持图片 2 的平整地面，不变山峰；亮度与跟练一致；手脚动作按真人参考"
         job=martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
-            "asset_type":"teaching","model":"sd2.5"})[0]
+            "asset_type":"teaching","model":"sd2.5","prompt_adjustment":correction})[0]
         with store.connect() as c:
-            saved=c.execute("SELECT prompt,background_ref_json FROM martial_media_jobs WHERE id=?",(job["id"],)).fetchone()
+            saved=c.execute("SELECT prompt,prompt_adjustment,background_ref_json FROM martial_media_jobs WHERE id=?",(job["id"],)).fetchone()
         locked=store.parse(saved["background_ref_json"],{})
         self.assertIn("图片 2 是本功法练功背景 V1",saved["prompt"])
         self.assertIn("流云或薄雾在远景缓慢",saved["prompt"])
-        self.assertIn("建筑、地面和树木保持稳定",saved["prompt"])
+        self.assertIn("地板、建筑和树木保持稳定",saved["prompt"])
+        self.assertIn("不得把练功地板变成山峰",saved["prompt"])
+        self.assertIn(correction,saved["prompt"])
+        self.assertEqual(saved["prompt_adjustment"],correction)
+        detail=martial.move_detail(self.move_id,self.employee)
+        self.assertIn(correction,next(item for item in detail["media"] if item["id"]==job["id"])["prompt"])
         image=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-character.jpg").read_bytes()
         newer=martial_multimodal_assets.upload_art_background(self.manager,"beginner",
             {"upload":self.upload("training-ground-v2.jpg",image+b"\x03")})["assets"]["background"]
@@ -120,6 +126,7 @@ class ReferenceReproductionTest(unittest.TestCase):
         claimed=martial.media_claim(job["id"])
         self.assertEqual(claimed["background_ref"],locked)
         self.assertEqual(len(claimed["image_urls"]),2)
+        self.assertIn(correction,claimed["segments"][0]["prompt"])
         self.assertEqual(len(martial_connector._media_segments(claimed)),1)
         self.assertIn(locked["asset_id"],claimed["image_urls"][1])
         self.assertNotIn(newer["asset_id"],claimed["image_urls"][1])
@@ -375,6 +382,54 @@ class ReferenceReproductionTest(unittest.TestCase):
             current=martial._current_final_error(c,martial._row(c,"martial_media_jobs",job["id"]))
         self.assertIsNone(current)
 
+    def test_replacing_teaching_source_keeps_practice_final_current(self):
+        for kind in ("teaching","practice"):
+            martial.save_video_plan(self.employee,self.move_id,{"asset_type":kind,
+                "motion_ref_id":self.ref["id"],"source_start":0,"source_end":15,
+                "target_duration":15,"brief":kind})
+        original=martial.request_package(self.employee,self.move_id)
+        ready=martial.package_report(original["id"],{"status":"complete","body":self.body("两条独立制作")})
+        store.start(ready["task_id"],self.employee)
+        teaching=martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
+            "asset_type":"teaching","model":"sd2.5"})[0]
+        practice=martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
+            "asset_type":"practice","model":"sd2.5"})[0]
+        video=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-bagua-part01.mp4").read_bytes()
+        final_asset=store.register_submission_asset("wuxiang","practice-final.mp4",video,self.employee["id"])
+        with store.connect() as c:
+            c.execute("UPDATE martial_media_jobs SET status='succeeded',candidate_asset_id=?,technical_report=? WHERE id=?",
+                (final_asset["id"],store.dumps({"result":"pass","server_probe":{"duration":15}}),practice["id"]))
+            c.execute("INSERT INTO martial_final_assets(id,move_id,asset_type,media_job_id,asset_id,status,approved_by,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                ("mf_practice_test",self.move_id,"practice",practice["id"],final_asset["id"],"active",self.manager["id"],store.now()))
+        newer=martial.upload_motion(self.employee,self.move_id,{"upload":self.upload("teaching-new.mp4",video+b"\x00"),
+            "start_time":0,"end_time":15,"orientation":"正面"})["motions"][0]
+        martial.confirm_motion(self.employee,newer["id"])
+        martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",
+            "motion_ref_id":newer["id"],"source_start":0,"source_end":15,
+            "target_duration":15,"brief":"新版讲解真人动作"})
+        updated=martial.request_package(self.employee,self.move_id)
+        martial.package_report(updated["id"],{"status":"complete","body":self.body("新版讲解")})
+        detail=martial.move_detail(self.move_id,self.employee)
+        self.assertIn("practice",detail["final_types"])
+        self.assertNotIn("teaching",detail["final_types"])
+        self.assertTrue(next(job for job in detail["media"] if job["id"]==practice["id"])["current_context"])
+        self.assertFalse(next(job for job in detail["media"] if job["id"]==teaching["id"])["current_context"])
+
+    def test_accepted_task_can_start_a_new_complete_video_version(self):
+        martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",
+            "motion_ref_id":self.ref["id"],"source_start":0,"source_end":15,
+            "target_duration":15,"brief":"讲解完整视频"})
+        package=martial.request_package(self.employee,self.move_id)
+        tid=martial.package_report(package["id"],{"status":"complete","body":self.body("按真人动作")})["task_id"]
+        store.start(tid,self.employee)
+        with store.connect() as c:
+            store.update_task_status(c,tid,{"in_progress"},"accepted",self.manager["id"])
+        job=martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
+            "asset_type":"teaching","model":"sd2.5","prompt_adjustment":"保持练功地面和亮度"})[0]
+        with store.connect() as c:
+            self.assertEqual(store.record(c,"tasks",tid)["status"],"in_progress")
+            self.assertEqual(c.execute("SELECT prompt_adjustment FROM martial_media_jobs WHERE id=?",(job["id"],)).fetchone()[0],"保持练功地面和亮度")
+
     def test_new_brief_invalidates_cache_and_pending_package_blocks_old_prompt(self):
         old=martial.request_package(self.employee,self.move_id)
         self.assertEqual(old["id"],martial.request_package(self.employee,self.move_id)["id"])
@@ -491,7 +546,7 @@ class ReferenceReproductionTest(unittest.TestCase):
         finally:
             web.shutdown();web.server_close();thread.join(timeout=5)
 
-    def test_stale_package_or_plan_cannot_select_or_qc_candidate(self):
+    def test_other_track_change_keeps_candidate_but_own_plan_change_invalidates_it(self):
         video=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-bagua-part01.mp4").read_bytes()
         first_package=martial.request_package(self.employee,self.move_id)
         ready=martial.package_report(first_package["id"],{"status":"complete","body":self.body("旧讲解")})
@@ -504,10 +559,9 @@ class ReferenceReproductionTest(unittest.TestCase):
         martial.save_video_plan(self.employee,self.move_id,{"asset_type":"practice","source_start":0,
             "source_end":15,"target_duration":50,"brief":"跟练节奏调整"})
         detail=martial.move_detail(self.move_id,self.employee)
-        self.assertFalse(next(job for job in detail["media"] if job["id"]==old["id"])["current_context"])
-        with self.assertRaisesRegex(ValueError,"AI 准备已不是当前版本"):
-            martial.select_candidate(self.employee,old["id"],"已核对真人标准动作")
-        self.assertEqual(next(row for row in martial.overview(self.employee)["moves"] if row["id"]==self.move_id)["candidate_count"],0)
+        self.assertTrue(next(job for job in detail["media"] if job["id"]==old["id"])["current_context"])
+        martial.select_candidate(self.employee,old["id"],"已核对真人标准动作")
+        self.assertEqual(next(row for row in martial.overview(self.employee)["moves"] if row["id"]==self.move_id)["candidate_count"],1)
         refreshed=martial.request_package(self.employee,self.move_id)
         martial.package_report(refreshed["id"],{"status":"complete","body":self.body("新版双视频")})
         current=martial.create_media(self.employee,self.move_id,{"generation_mode":"preview","asset_type":"practice","model":"sd2.5"})[0]

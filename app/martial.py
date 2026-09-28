@@ -197,7 +197,8 @@ def initialize():
             "martial_media_jobs": {"generation_mode":"TEXT", "video_plan_id":"TEXT REFERENCES martial_video_plans(id)",
                                    "segments_json":"TEXT NOT NULL DEFAULT '[]'", "segment_progress":"TEXT NOT NULL DEFAULT '[]'",
                                    "edit_refs_json":"TEXT NOT NULL DEFAULT '{}'",
-                                   "background_ref_json":"TEXT NOT NULL DEFAULT '{}'"},
+                                   "background_ref_json":"TEXT NOT NULL DEFAULT '{}'",
+                                   "prompt_adjustment":"TEXT NOT NULL DEFAULT ''"},
             "martial_qc": {"checks":"TEXT NOT NULL DEFAULT '{}'", "issue_ranges":"TEXT NOT NULL DEFAULT '[]'",
                            "major_dispute":"INTEGER NOT NULL DEFAULT 0"},
         }.items():
@@ -402,21 +403,20 @@ def _package_facts_current(c, move: dict, facts: dict, ref: dict | None, plans: 
         facts.get("video_plans")==_plan_facts(plans))
 
 
-def _package_track_facts_current(c, move: dict, facts: dict, ref: dict, plan: dict, asset_type: str) -> bool:
+def _package_track_facts_current(c, move: dict, facts: dict, plan: dict, asset_type: str) -> bool:
     art=_row(c,"martial_arts",move["martial_art_id"])
     master=_row(c,"martial_masters",art["master_id"])
     return bool(facts.get("package_prompt_version")==PACKAGE_PROMPT_VERSION and
         facts.get("move",{}).get("version")==move["current_version"] and
         facts.get("art",{}).get("version")==art["version"] and
         facts.get("master",{}).get("version")==master["current_version"] and
-        facts.get("motion",{}).get("id")==ref["id"] and
         (facts.get("motions",{}).get(asset_type) or facts.get("motion",{})).get("id")==plan["motion_ref_id"] and
         facts.get("video_plans",{}).get(asset_type)=={key:plan[key] for key in
             ("id","asset_type","version","motion_ref_id","source_start","source_end","target_duration","brief")})
 
 
 def _current_job_error(c, job: dict) -> str | None:
-    """Only candidates from the current two-track AI preparation may be acted on."""
+    """Keep a candidate usable while its own locked video track remains current."""
     if job.get("generation_mode") not in {"preview","reproduce","complete","edit_trial"}:
         return "历史候选缺少当前双视频规划记录"
     move=_row(c,"martial_moves",job["move_id"])
@@ -431,13 +431,11 @@ def _current_job_error(c, job: dict) -> str | None:
     if job["motion_ref_id"]!=plan["motion_ref_id"]:
         return "候选引用的真人动作已不是该视频规划的当前版本"
     package=c.execute("SELECT * FROM martial_packages WHERE id=?",(job["package_id"],)).fetchone()
-    latest=next((r for r in c.execute("SELECT id FROM martial_packages WHERE move_id=? ORDER BY created_at DESC,rowid DESC",(move["id"],))
-                 if not martial_product.historical(c,"package",r["id"])),None)
-    if (not package or not latest or latest["id"]!=job["package_id"] or package["status"]!="complete" or
-            package["motion_ref_id"]!=ref["id"] or job["master_version"]!=package["master_version"] or
-            not _package_facts_current(c,move,store.parse(package["facts"],{}),dict(ref),plans) or
+    if (not package or package["status"]!="complete" or
+            job["master_version"]!=package["master_version"] or
+            not _package_track_facts_current(c,move,store.parse(package["facts"],{}),plan,job["asset_type"]) or
             store.parse(package["result"],{}).get("missing_inputs")):
-        return "候选所用 AI 准备已不是当前版本"
+        return "候选所用 AI 准备已不是本条视频的当前版本"
     return None
 
 
@@ -459,8 +457,8 @@ def _current_final_error(c, job: dict) -> str | None:
         return "候选引用的真人动作已不是该视频规划的当前版本"
     package=c.execute("SELECT * FROM martial_packages WHERE id=?",(job["package_id"],)).fetchone()
     if (not package or package["status"]!="complete" or
-            package["motion_ref_id"]!=ref["id"] or job["master_version"]!=package["master_version"] or
-            not _package_track_facts_current(c,move,store.parse(package["facts"],{}),dict(ref),plan,job["asset_type"])):
+            job["master_version"]!=package["master_version"] or
+            not _package_track_facts_current(c,move,store.parse(package["facts"],{}),plan,job["asset_type"])):
         return "候选所用 AI 准备已不是当前双视频规划"
     if not math.isclose(float(job["duration"]),float(plan["target_duration"]),abs_tol=1):
         return "候选记录时长不匹配当前视频规划"
@@ -697,7 +695,8 @@ def move_detail(move_id: str, user: dict) -> dict:
             m["edit_refs"]=store.parse(m.pop("edit_refs_json",None),{})
             m["background_ref"]=store.parse(m.pop("background_ref_json",None),{})
             m["segment_progress"]=store.parse(m["segment_progress"],[])
-            m.pop("prompt",None)  # a production prompt is shown through the approved package
+            # Show the prompt actually sent for this job. The AI preparation
+            # suggestions alone are not the provider prompt.
             if user["role"]=="employee":
                 for private in ("provider","model","provider_job_id","local_job_id","local_media_id",
                                 "idempotency_key","request_key","quote_source","prompt_hash"):
@@ -1942,6 +1941,12 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
     cut_points=str(data.get("cut_points") or "").strip()
     asset_type=str(data.get("asset_type") or "")
     if asset_type not in VIDEO_TYPES:raise ValueError("请选择讲解演示或跟教练跟练视频")
+    raw_adjustment=data.get("prompt_adjustment","")
+    if not isinstance(raw_adjustment,str):raise ValueError("本次修正提示词必须是文字")
+    prompt_adjustment=raw_adjustment.strip()
+    if len(prompt_adjustment)>1500:raise ValueError("本次修正提示词不能超过 1500 字")
+    if prompt_adjustment and generation_mode!="complete":
+        raise ValueError("本次修正提示词只用于正式完整视频")
     estimate=quote(user,move_id,alias,count,generation_mode,asset_type,cut_points)
     if not data.get("generation_mode") and (estimate.get("target_duration") or 0)>5.01:
         raise ValueError("目标视频超过 5 秒，请明确选择完整制作或 5 秒样片")
@@ -1955,7 +1960,8 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
         track_ref=_plan_ref(c,plan)
         if not move["task_id"]:raise ValueError("生产任务尚未形成；需先有已批准的老师形象")
         task=store.record(c,"tasks",move["task_id"])
-        if task["assignee_id"]!=user["id"] or task["status"]!="in_progress":
+        reopening=task["status"]=="accepted" and generation_mode=="complete"
+        if task["assignee_id"]!=user["id"] or (task["status"]!="in_progress" and not reopening):
             raise PermissionError("只能为本人进行中的武学任务发起生成")
         pkg=c.execute("SELECT * FROM martial_packages WHERE move_id=? AND motion_ref_id=? AND master_version=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
                       (move_id,ref["id"],mm["version"])).fetchone()
@@ -1990,9 +1996,10 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
                   if edit_trial else
                   f"图片 1 仅用于数字老师 {master['name']} V{mm['version']} 的身份、外观和服装；"
                   f"图片 2 是本功法练功背景 V{background['version']} 的静态原图。以图片 2 锁定练功场的建筑、"
-                  "地面、山石、树木、空间布局、色彩和光照方向；不要替换为其他武术场景。"
+                  "地板材质、地面平面、建筑、树木、空间布局、色彩和光照方向；不要替换为其他武术场景。"
                   "只让原图已有的流云或薄雾在远景缓慢、连续、轻微地浮动，光影可有细微自然变化；"
-                  "建筑、地面和树木保持稳定，不要整张背景平移、缩放、扭曲，也不要新增抢眼特效。")+
+                  "地板、建筑和树木保持稳定；不得把练功地板变成山峰、悬崖或云海，"
+                  "保持原图的整体亮度，不要把画面压暗；不要整张背景平移、缩放、扭曲，也不要新增抢眼特效。")+
                 "视频 1 是唯一的动作与时序参考。逐时刻保留视频 1 中双手轨迹、双脚落点、朝向、"
                 "重心、速度、停顿、起止姿态和完整身体取景。只替换人物外观，不新增动作、换边、"
                 "改拍或改变节奏。固定全身机位，保持手脚无遮挡。"
@@ -2003,6 +2010,9 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
         if edit_trial:prompt+="\n这是无音轨的视觉试拍候选，不加字幕、文字、对白、配乐或音效。试拍参考图不能作为正式美术资产。"
         if asset_type=="practice":prompt+="\n输出动作演练素材，不把动态教学反馈语音烧入标准视频。"
         else:prompt+="\n输出数字功法老师教学视频；标准视频与动态 TTS 分离。"
+        if prompt_adjustment:
+            prompt+="\n本次人工修正提示词："+prompt_adjustment
+            prompt+="\n修正不得改变图片 1 的老师身份、图片 2 的练功场结构或视频 1 的动作与时序；冲突时以参考素材为准。"
         prompt_hash=hashlib.sha256(prompt.encode()).hexdigest()
         remaining,budget=_remaining(c,task["id"])
         if remaining is not None and estimate["estimated_cost"]>remaining:raise ValueError("生成预算已被其他任务占用")
@@ -2025,6 +2035,8 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
             revision=martial_revision.ensure_for_job(c,old["id"])
             prompt+="\n"+martial_revision.render_instructions(revision["payload"])
             prompt_hash=hashlib.sha256(prompt.encode()).hexdigest()
+        if reopening:
+            store.update_task_status(c,task["id"],{"accepted"},"in_progress",user["id"],"正式视频制作新版")
         created=[]
         for _ in range(count):
             jid="mj_"+secrets.token_hex(8);stamp=store.now()
@@ -2049,6 +2061,9 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
             if background:
                 c.execute("UPDATE martial_media_jobs SET background_ref_json=? WHERE id=?",
                           (store.dumps(background),jid))
+            if prompt_adjustment:
+                c.execute("UPDATE martial_media_jobs SET prompt_adjustment=? WHERE id=?",
+                          (prompt_adjustment,jid))
             created.append(jid)
         store.audit(c,user["id"],"martial.media.queue",task["id"],{"media_job_ids":created,"reserved_cost":estimate["estimated_cost"]})
         return [{"id":jid,"status":"queued","model_alias":alias,"asset_type":asset_type,
