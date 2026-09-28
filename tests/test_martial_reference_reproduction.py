@@ -97,7 +97,8 @@ class ReferenceReproductionTest(unittest.TestCase):
         with store.connect() as c:
             prompt=c.execute("SELECT prompt FROM martial_media_jobs WHERE id=?",(job["id"],)).fetchone()[0]
         self.assertIn("只生成 5 秒短片预览",prompt)
-        self.assertIn("保留原片示范→跟练结构",prompt)
+        self.assertIn("视频 1 是唯一的动作与时序参考",prompt)
+        self.assertNotIn("保留原片示范→跟练结构",prompt)
         self.assertIn("讲解演示",prompt)
 
     def test_preview_blocks_when_whole_reference_exceeds_supplier_input_limit(self):
@@ -135,7 +136,7 @@ class ReferenceReproductionTest(unittest.TestCase):
         with store.connect() as c:
             self.assertEqual(c.execute("SELECT COUNT(*) FROM martial_media_jobs").fetchone()[0],0)
 
-    def test_complete_generation_uses_separate_clips_and_aggregate_budget(self):
+    def test_complete_generation_blocks_unsafe_auto_stitch_and_keeps_single_clip(self):
         with store.connect() as c:
             c.execute("UPDATE martial_motion_refs SET duration=46.7,end_time=46.7,width=2160,height=3840 WHERE id=?",(self.ref["id"],))
         martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",
@@ -147,28 +148,33 @@ class ReferenceReproductionTest(unittest.TestCase):
         store.start(ready["task_id"],self.employee)
         teaching=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","teaching")
         practice=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","practice")
-        self.assertEqual([(s["source_start"],s["source_end"],s["duration"])
-                          for s in teaching["segments"]],[(0,20,20),(20,33,13)])
+        self.assertTrue(teaching["blocked"])
+        self.assertIn("自动分段拼接",teaching["block_reason"])
+        self.assertEqual(teaching["segments"],[])
         self.assertEqual([(s["source_start"],s["source_end"],s["duration"])
                           for s in practice["segments"]],[(33,46.7,14)])
-        self.assertEqual((teaching["estimated_cost"],practice["estimated_cost"]),(46,19))
+        self.assertEqual((teaching["estimated_cost"],practice["estimated_cost"]),(None,19))
         self.assertEqual((teaching["aspect_ratio"],practice["aspect_ratio"]),("9:16","9:16"))
         self.assertTrue(teaching["blocked"])
-        self.assertIn("预算不足",teaching["block_reason"])
+        self.assertTrue(practice["blocked"])
+        self.assertIn("预算不足",practice["block_reason"])
         martial.update_budget(self.manager,self.move_id,"unlimited")
         unbounded=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","teaching")
-        self.assertFalse(unbounded["blocked"])
+        self.assertTrue(unbounded["blocked"])
         self.assertTrue(unbounded["budget_unlimited"])
         self.assertIsNone(unbounded["remaining_budget"])
+        with self.assertRaisesRegex(ValueError,"自动分段拼接"):
+            martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
+                "asset_type":"teaching","model":"sd2.5"})
         job=martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
-            "asset_type":"teaching","model":"sd2.5"})[0]
+            "asset_type":"practice","model":"sd2.5"})[0]
         claim=martial.media_claim(job["id"])
-        self.assertEqual((job["duration"],job["reserved_cost"]),(33,46))
+        self.assertEqual((job["duration"],job["reserved_cost"]),(14,19))
         self.assertEqual(claim["video_urls"],[])
         self.assertTrue(claim["reference_source_url"].startswith("https://"))
-        self.assertEqual(len(claim["segments"]),2)
-        self.assertEqual(len({s["request_key"] for s in claim["segments"]}),2)
-        self.assertEqual(martial.move_detail(self.move_id,self.employee)["media"][0]["segments"][0]["duration"],20)
+        self.assertEqual(len(claim["segments"]),1)
+        self.assertIn("视频 1 是唯一的动作与时序参考",claim["segments"][0]["prompt"])
+        self.assertEqual(martial.move_detail(self.move_id,self.employee)["media"][0]["segments"][0]["duration"],14)
 
     def test_reference_clip_is_immutable_and_signed(self):
         martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",

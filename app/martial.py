@@ -1662,33 +1662,24 @@ def _route(c,model_alias: str) -> dict | None:
 
 
 def _complete_segments(plan: dict) -> list[dict]:
-    """Partition one locked source interval into supplier-sized reference clips."""
+    """Price one continuous motion unit; separate model calls cannot preserve its seam."""
     start=float(plan["source_start"]); end=float(plan["source_end"])
     target=float(plan["target_duration"])
     if end<=start or abs((end-start)-target)>0.25:
         raise ValueError("完整制作要求目标时长与所选真人片段一致，请先修正视频规划")
-    if target>180:
-        raise ValueError("当前最多支持 180 秒完整视频")
-    boundaries=[start]
-    while end-boundaries[-1]>RUNY_VIDEO_REFERENCE_MAX_SECONDS:
-        boundaries.append(round(boundaries[-1]+20,3))
-    if end-boundaries[-1]<4 and len(boundaries)>1:
-        boundaries[-1]=round(end-4,3)
-    boundaries.append(end)
-    segments=[]
-    for index,(a,b) in enumerate(zip(boundaries,boundaries[1:])):
-        source_duration=round(b-a,3)
-        duration=math.ceil(source_duration-0.001)
-        if not 4<=duration<=RUNY_VIDEO_REFERENCE_MAX_SECONDS:
-            raise ValueError("所选真人片段无法按润元 4–30 秒单段要求制作")
-        # 480p at 24 fps: approximately 9,585 video tokens per second.
-        # The Runy account's observed ¥59.5/million-token unit price is used
-        # conservatively; video-input billing has not yet been measured.
-        reserve=math.ceil((source_duration+duration)*9585*59.5/1_000_000*1.2)
-        segments.append({"index":index,"source_start":round(a,3),"source_end":round(b,3),
-                         "source_duration":source_duration,"duration":duration,
-                         "reserved_cost":reserve,"estimated_cost":reserve})
-    return segments
+    if target>RUNY_VIDEO_REFERENCE_MAX_SECONDS:
+        raise ValueError("严格动作复刻暂不允许自动分段拼接：独立生成会在接缝处重置姿态。请先由武术同事按完整动作单元确认不超过 30 秒的区间")
+    source_duration=round(end-start,3)
+    duration=math.ceil(source_duration-0.001)
+    if not 4<=duration<=RUNY_VIDEO_REFERENCE_MAX_SECONDS:
+        raise ValueError("所选真人片段无法按润元 4–30 秒单段要求制作")
+    # 480p at 24 fps: approximately 9,585 video tokens per second.
+    # The Runy account's observed ¥59.5/million-token unit price is used
+    # conservatively; video-input billing has not yet been measured.
+    reserve=math.ceil((source_duration+duration)*9585*59.5/1_000_000*1.2)
+    return [{"index":0,"source_start":round(start,3),"source_end":round(end,3),
+             "source_duration":source_duration,"duration":duration,
+             "reserved_cost":reserve,"estimated_cost":reserve}]
 
 
 def _reference_aspect_ratio(ref: dict | None) -> str:
@@ -1845,20 +1836,17 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
         if lock_error:raise ValueError(lock_error)
         suggestion=str(package.get(asset_type+"_prompt") or "").strip()
         if not suggestion:raise ValueError("AI 生产包没有生成提示词")
-        key_moments="；".join(f"{m['time']:.2f}秒 {m['label']}" if isinstance(m,dict) else str(m) for m in ref["key_moments"])
         complete=generation_mode=="complete"
-        prompt=(f"已确认武学事实：{art['chinese_name']}；招式：{mv['payload']['chinese_name']}；"
-                f"中文动作：{mv['payload']['chinese_action']}；老师：{master['name']} V{mm['version']}，保持定版身份和外观。"
-                f"供应商收到{'当前区间裁好的' if complete else '完整'}真人参考视频；本次{ '讲解演示' if asset_type=='teaching' else '跟教练跟练'}视频"
-                f"只引用 {plan['source_start']} 至 {plan['source_end']} 秒，目标时长 {plan['target_duration']} 秒；"
-                f"仅此区间约束动作生成，方向：{ref['orientation']}；"
-                f"关键时刻：{key_moments}。禁止改写已确认动作事实。\n"
-                f"本视频独立制作说明：{plan['brief'] or ('讲清动作并示范' if asset_type=='teaching' else '跟随教练节奏练习')}。\n"
-                f"员工确认的制作意图：{recorded.get('production_brief') or '未提供额外时序说明'}。\n"
-                f"制作建议仅作从属参考：{suggestion}\n"
-                +("请严格跟随当前裁切参考段的动作顺序、节奏、取景和起止姿态；每段只生成当前区间，后续按顺序合成完整候选。"
+        prompt=(f"《{art['chinese_name']}·{mv['payload']['chinese_name']}》"
+                f"{'讲解演示' if asset_type=='teaching' else '跟教练跟练'}动作复刻。"
+                f"图片 1 仅用于数字老师 {master['name']} V{mm['version']} 的身份、外观和服装；"
+                "视频 1 是唯一的动作与时序参考。逐时刻保留视频 1 中双手轨迹、双脚落点、朝向、"
+                "重心、速度、停顿、起止姿态和完整身体取景。只替换人物外观，不新增动作、换边、"
+                "改拍或改变节奏。固定全身机位，保持手脚无遮挡。"
+                "若文字与参考视频画面冲突，以参考视频为准。"
+                +("本次仅制作当前裁切区间，不引用原片其他秒点。"
                   if complete else
-                  "本次只生成 5 秒短片预览，不得表述成完整真人视频复刻或正式视频；不要擅自改变所选片段内的动作顺序。"))
+                  "本次只生成 5 秒短片预览，不得表述成完整真人视频复刻或正式视频。"))
         if asset_type=="practice":prompt+="\n输出动作演练素材，不把动态教学反馈语音烧入标准视频。"
         else:prompt+="\n输出数字功法老师教学视频；标准视频与动态 TTS 分离。"
         prompt_hash=hashlib.sha256(prompt.encode()).hexdigest()
