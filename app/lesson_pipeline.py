@@ -444,9 +444,14 @@ def _check(c, lesson: dict) -> dict:
     move = c.execute("SELECT * FROM martial_moves WHERE id=?", (lesson["move_id"],)).fetchone()
     facts = store.parse(c.execute("SELECT payload FROM martial_move_versions WHERE move_id=? AND version=?", (move["id"], move["current_version"])).fetchone()[0], {}) if move["current_version"] else {}
     teacher = martial._master_status(c, art["master_id"]) if art["master_id"] else {"production_ready": False, "version": 0}
-    ref = c.execute("""SELECT r.*,a.sha256 AS source_sha256,a.storage_ref FROM martial_motion_refs r
-      JOIN assets a ON a.id=r.video_asset_id WHERE r.move_id=? AND r.status='locked'
-      ORDER BY r.version DESC LIMIT 1""", (move["id"],)).fetchone()
+    ref = c.execute("""SELECT r.*,a.sha256 AS source_sha256,a.storage_ref FROM martial_video_plans p
+      JOIN martial_motion_refs r ON r.id=p.motion_ref_id JOIN assets a ON a.id=r.video_asset_id
+      WHERE p.move_id=? AND p.asset_type='teaching' AND p.status='active' AND r.status='locked'
+      ORDER BY p.version DESC LIMIT 1""", (move["id"],)).fetchone()
+    if not ref:
+        ref = c.execute("""SELECT r.*,a.sha256 AS source_sha256,a.storage_ref FROM martial_motion_refs r
+          JOIN assets a ON a.id=r.video_asset_id WHERE r.move_id=? AND r.status='locked'
+          ORDER BY r.version DESC LIMIT 1""", (move["id"],)).fetchone()
     ref = dict(ref) if ref and not martial_product.historical(c,"motion_ref",ref["id"]) else None
     final = _active_final(c, move["id"])
     candidate = _latest_candidate(c, move["id"])

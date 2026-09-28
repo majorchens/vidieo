@@ -73,6 +73,41 @@ class ReferenceReproductionTest(unittest.TestCase):
                 "negative_constraints":[],"reference_mapping":[],"qc_checklist":[],
                 "missing_inputs":[],"facts":{},"ai_suggestions":[]}
 
+    def test_separate_teaching_and_practice_uploads_reach_ai_preparation(self):
+        original_id=self.ref["id"]
+        video=(ROOT/"tests/fixtures"/"wuxiang"/"cryn-bagua-part01.mp4").read_bytes()
+        second=martial.upload_motion(self.employee,self.move_id,{"upload":self.upload("practice.mp4",video),
+            "start_time":0,"end_time":12,"orientation":"正面","notes":"独立跟练参考"})["motions"][0]
+        martial.confirm_motion(self.employee,second["id"])
+        detail=martial.move_detail(self.move_id,self.employee)
+        self.assertEqual(detail["video_plans"]["teaching"]["motion_ref_id"],original_id)
+        self.assertEqual(detail["video_plans"]["practice"]["motion_ref_id"],original_id)
+        detail=martial.save_video_plan(self.employee,self.move_id,{"asset_type":"practice",
+            "motion_ref_id":second["id"],"source_start":0,"source_end":12,
+            "target_duration":12,"brief":"跟练使用第二条真人视频"})
+        self.assertEqual(detail["video_plans"]["teaching"]["motion_ref_id"],original_id)
+        self.assertEqual(detail["video_plans"]["practice"]["motion_ref_id"],second["id"])
+        martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",
+            "motion_ref_id":original_id,"source_start":0,"source_end":15,
+            "target_duration":15,"brief":"讲解使用第一条真人视频"})
+        package=martial.request_package(self.employee,self.move_id)
+        self.assertEqual(martial.store.parse(package["facts"],{})["motions"]["teaching"]["id"],original_id)
+        self.assertEqual(martial.store.parse(package["facts"],{})["motions"]["practice"]["id"],second["id"])
+        ready=martial.package_report(package["id"],{"status":"complete","body":self.body("分别参照真人动作")})
+        self.assertTrue(ready["task_id"])
+        self.assertTrue(martial.move_detail(self.move_id,self.employee)["package_current"])
+        store.start(ready["task_id"],self.employee)
+        teaching=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","teaching")
+        practice=martial.quote(self.employee,self.move_id,"sd2.5",1,"complete","practice")
+        self.assertEqual((teaching["source_end"],practice["source_end"]),(15,12))
+        martial.update_budget(self.manager,self.move_id,"unlimited")
+        jobs={kind:martial.create_media(self.employee,self.move_id,{"generation_mode":"complete",
+            "asset_type":kind,"model":"sd2.5"})[0]["id"] for kind in ("teaching","practice")}
+        with store.connect() as c:
+            refs={kind:c.execute("SELECT motion_ref_id FROM martial_media_jobs WHERE id=?",(job_id,)).fetchone()[0]
+                  for kind,job_id in jobs.items()}
+        self.assertEqual(refs,{"teaching":original_id,"practice":second["id"]})
+
     def test_reproduce_is_blocked_before_any_paid_job_and_preview_remains_explicit(self):
         package=martial.request_package(self.employee,self.move_id,{"production_brief":"保留原片示范→跟练结构"})
         report=martial.package_report(package["id"],{"status":"complete","body":self.body("按原片结构作为动作参考")})

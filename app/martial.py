@@ -67,7 +67,7 @@ LONG_VIDEO_RESERVATION_SOURCE = (
     "润元历史账单 480p ¥59.5/百万 tokens；含视频输入尚无实际账单。"
     "按输入+输出帧估算并上浮 20% 预留，实际以供应商账单为准"
 )
-PACKAGE_PROMPT_VERSION = 3  # Separate teaching and practice prompts invalidate old AI packages.
+PACKAGE_PROMPT_VERSION = 3  # Keep existing single-reference packages valid.
 VIDEO_TYPES = ("teaching", "practice")
 DICTIONARY = Path(__file__).resolve().parents[1] / "registry" / "martial_dictionary.json"
 MASTER_SOURCES = Path(__file__).resolve().parents[1] / "registry" / "martial_master_sources.json"
@@ -352,14 +352,28 @@ def _task_lock_error(c, task_id: str, visual_asset_id: str, master_version: int,
     return None
 
 
-def _video_plans(c, move_id: str, motion_ref_id: str | None) -> dict:
-    """Only plans for the current locked reference are usable; retain older versions."""
+def _video_plans(c, move_id: str) -> dict:
+    """Each track may use a different locked reference; retain older plans."""
     plans={kind:None for kind in VIDEO_TYPES}
-    if not motion_ref_id:return plans
-    for row in c.execute("SELECT * FROM martial_video_plans WHERE move_id=? AND motion_ref_id=? AND status='active' ORDER BY version DESC",
-                         (move_id,motion_ref_id)):
-        if plans[row["asset_type"]] is None:plans[row["asset_type"]]=dict(row)
+    for row in c.execute("""SELECT p.* FROM martial_video_plans p
+         JOIN martial_motion_refs r ON r.id=p.motion_ref_id
+         WHERE p.move_id=? AND p.status='active' AND r.move_id=p.move_id AND r.status='locked'
+         ORDER BY p.version DESC""",(move_id,)):
+        if plans[row["asset_type"]] is None and not martial_product.historical(c,"motion_ref",row["motion_ref_id"]):
+            plans[row["asset_type"]]=dict(row)
     return plans
+
+
+def _plan_ref(c, plan: dict | None) -> dict | None:
+    return dict(_row(c,"martial_motion_refs",plan["motion_ref_id"])) if plan else None
+
+
+def _motion_facts(ref: dict) -> dict:
+    return {"id":ref["id"],"version":ref["version"],"asset_id":ref["video_asset_id"],
+            "start":ref["start_time"],"end":ref["end_time"],"orientation":ref["orientation"],
+            "start_pose":ref["start_pose"],"end_pose":ref["end_pose"],
+            "key_moments":store.parse(ref["key_moments"],[]) if isinstance(ref["key_moments"],str) else ref["key_moments"],
+            "notes":ref["notes"],"duration":ref["duration"],"width":ref["width"],"height":ref["height"]}
 
 
 def _plan_facts(plans: dict) -> dict:
@@ -376,6 +390,7 @@ def _package_facts_current(c, move: dict, facts: dict, ref: dict | None, plans: 
         facts.get("art",{}).get("version")==art["version"] and
         facts.get("master",{}).get("version")==master["current_version"] and
         facts.get("motion",{}).get("id")==ref["id"] and
+        all((facts.get("motions",{}).get(kind) or facts.get("motion",{})).get("id")==plans[kind]["motion_ref_id"] for kind in VIDEO_TYPES) and
         facts.get("video_plans")==_plan_facts(plans))
 
 
@@ -387,6 +402,7 @@ def _package_track_facts_current(c, move: dict, facts: dict, ref: dict, plan: di
         facts.get("art",{}).get("version")==art["version"] and
         facts.get("master",{}).get("version")==master["current_version"] and
         facts.get("motion",{}).get("id")==ref["id"] and
+        (facts.get("motions",{}).get(asset_type) or facts.get("motion",{})).get("id")==plan["motion_ref_id"] and
         facts.get("video_plans",{}).get(asset_type)=={key:plan[key] for key in
             ("id","asset_type","version","motion_ref_id","source_start","source_end","target_duration","brief")})
 
@@ -399,11 +415,13 @@ def _current_job_error(c, job: dict) -> str | None:
     if not martial_product.current_move(c,move["id"]):return "招式已不在当前生产范围"
     ref=next((r for r in c.execute("SELECT * FROM martial_motion_refs WHERE move_id=? AND status='locked' ORDER BY version DESC",(move["id"],))
               if not martial_product.historical(c,"motion_ref",r["id"])),None)
-    if not ref or job["motion_ref_id"]!=ref["id"]:return "候选引用的真人动作已不是当前锁定版本"
-    plans=_video_plans(c,move["id"],ref["id"])
+    if not ref:return "真人动作参考已不是当前锁定版本"
+    plans=_video_plans(c,move["id"])
     plan=plans.get(job["asset_type"])
     if not plan or job.get("video_plan_id")!=plan["id"]:
         return "候选引用的视频规划已不是当前版本"
+    if job["motion_ref_id"]!=plan["motion_ref_id"]:
+        return "候选引用的真人动作已不是该视频规划的当前版本"
     package=c.execute("SELECT * FROM martial_packages WHERE id=?",(job["package_id"],)).fetchone()
     latest=next((r for r in c.execute("SELECT id FROM martial_packages WHERE move_id=? ORDER BY created_at DESC,rowid DESC",(move["id"],))
                  if not martial_product.historical(c,"package",r["id"])),None)
@@ -424,11 +442,13 @@ def _current_final_error(c, job: dict) -> str | None:
     if not martial_product.current_move(c,move["id"]):return "招式已不在当前生产范围"
     ref=next((r for r in c.execute("SELECT * FROM martial_motion_refs WHERE move_id=? AND status='locked' ORDER BY version DESC",(move["id"],))
               if not martial_product.historical(c,"motion_ref",r["id"])),None)
-    if not ref or job["motion_ref_id"]!=ref["id"]:return "候选引用的真人动作已不是当前锁定版本"
-    plans=_video_plans(c,move["id"],ref["id"])
+    if not ref:return "真人动作参考已不是当前锁定版本"
+    plans=_video_plans(c,move["id"])
     plan=plans.get(job["asset_type"])
     if not plan or job.get("video_plan_id")!=plan["id"]:
         return "候选引用的视频规划已不是当前版本"
+    if job["motion_ref_id"]!=plan["motion_ref_id"]:
+        return "候选引用的真人动作已不是该视频规划的当前版本"
     package=c.execute("SELECT * FROM martial_packages WHERE id=?",(job["package_id"],)).fetchone()
     if (not package or package["status"]!="complete" or
             package["motion_ref_id"]!=ref["id"] or job["master_version"]!=package["master_version"] or
@@ -463,8 +483,14 @@ def save_video_plan(user: dict, move_id: str, data: dict) -> dict:
     with store.connect() as c:
         _row(c,"martial_moves",move_id)
         if not martial_product.current_move(c,move_id):raise ValueError("该招式不在当前生产范围")
-        ref=next((r for r in c.execute("SELECT * FROM martial_motion_refs WHERE move_id=? AND status='locked' ORDER BY version DESC",(move_id,))
-                  if not martial_product.historical(c,"motion_ref",r["id"])),None)
+        requested_ref=str(data.get("motion_ref_id") or "")
+        if requested_ref:
+            ref=c.execute("SELECT * FROM martial_motion_refs WHERE id=? AND move_id=? AND status='locked'",
+                          (requested_ref,move_id)).fetchone()
+            if ref and martial_product.historical(c,"motion_ref",ref["id"]):ref=None
+        else:
+            ref=next((r for r in c.execute("SELECT * FROM martial_motion_refs WHERE move_id=? AND status='locked' ORDER BY version DESC",(move_id,))
+                      if not martial_product.historical(c,"motion_ref",r["id"])),None)
         if ref is None:raise ValueError("请先确认真人标准动作参考")
         if start<ref["start_time"]-0.001 or end>ref["end_time"]+0.001 or end-start<0.1:
             raise ValueError("视频参考区间必须位于当前锁定的真人片段内")
@@ -515,7 +541,7 @@ def _production_blockers(c,move: dict,art: dict,master_status: dict,packages: li
     ref=next((r for r in c.execute("SELECT * FROM martial_motion_refs WHERE move_id=? AND status='locked' ORDER BY version DESC",(move["id"],))
               if not martial_product.historical(c,"motion_ref",r["id"])),None)
     if not ref:blockers.append("真人动作参考尚未锁定")
-    plans=_video_plans(c,move["id"],ref["id"] if ref else None)
+    plans=_video_plans(c,move["id"])
     if ref and any(plans[kind] is None for kind in VIDEO_TYPES):
         blockers.append("请分别规划讲解演示与跟教练跟练视频")
     latest=next((p for p in packages if
@@ -636,9 +662,12 @@ def move_detail(move_id: str, user: dict) -> dict:
                 if row:row["payload"]["chinese_name"]=mapping["business_label"]
         motions=[dict(r) for r in c.execute("SELECT * FROM martial_motion_refs WHERE move_id=? ORDER BY version DESC",(move_id,))
                  if not martial_product.historical(c,"motion_ref",r["id"])]
-        for m in motions:m["key_moments"]=store.parse(m["key_moments"],[])
+        for m in motions:
+            m["key_moments"]=store.parse(m["key_moments"],[])
+            asset=store.record(c,"assets",m["video_asset_id"])
+            m["asset_name"]=asset["name"] if asset else m["video_asset_id"]
         locked=next((m for m in motions if m["status"]=="locked"),None)
-        video_plans=_video_plans(c,move_id,locked["id"] if locked else None)
+        video_plans=_video_plans(c,move_id)
         packages=[dict(r) for r in c.execute("SELECT * FROM martial_packages WHERE move_id=? ORDER BY created_at DESC,rowid DESC",(move_id,))
                   if not martial_product.historical(c,"package",r["id"])][:8]
         for p in packages:
@@ -760,7 +789,7 @@ def overview(user: dict) -> dict:
             motions=[row for row in c.execute("SELECT id,status,version FROM martial_motion_refs WHERE move_id=? ORDER BY version DESC",(m["id"],))
                      if not martial_product.historical(c,"motion_ref",row["id"])]
             locked_ref=next((dict(row) for row in motions if row["status"]=="locked"),None)
-            plans=_video_plans(c,m["id"],locked_ref["id"] if locked_ref else None)
+            plans=_video_plans(c,m["id"])
             packages=[row for row in c.execute("SELECT id,status,facts,result FROM martial_packages WHERE move_id=? ORDER BY created_at DESC,rowid DESC",(m["id"],))
                       if not martial_product.historical(c,"package",row["id"])]
             latest_package=packages[0] if packages else None
@@ -1454,7 +1483,7 @@ def request_package(user: dict, move_id: str, data: dict | None = None) -> dict:
             if (not move["task_id"] or martial_product.historical(c,"task",move["task_id"]) or
                     not visual or _task_lock_error(c,move["task_id"],visual,mm["version"],ref)):
                 raise PermissionError("首次 AI 准备须由武学岗位员工发起；负责人只可刷新现有任务的 AI 内容")
-        plans=_video_plans(c,move_id,ref["id"])
+        plans=_video_plans(c,move_id)
         if any(plans[kind] is None for kind in VIDEO_TYPES):
             raise ValueError("请先分别保存讲解演示和跟教练跟练视频规划")
         facts={"art":{"version":art["version"],"chinese_name":art["chinese_name"],"english_name":art["english_name"],"source_ref":art["source_ref"]},
@@ -1464,10 +1493,8 @@ def request_package(user: dict, move_id: str, data: dict | None = None) -> dict:
                          "voice_id":mm["payload"].get("voice_id"),"profile":mm["payload"].get("profile"),
                          "canonical_sha256":mm["payload"].get("canonical_sha256"),
                          "teaching_style":mm["payload"].get("teaching_style")},
-               "motion":{"id":ref["id"],"version":ref["version"],"asset_id":ref["video_asset_id"],
-                         "start":ref["start_time"],"end":ref["end_time"],"orientation":ref["orientation"],
-                         "start_pose":ref["start_pose"],"end_pose":ref["end_pose"],"key_moments":ref["key_moments"],
-                         "notes":ref["notes"],"duration":ref["duration"],"width":ref["width"],"height":ref["height"]},
+               "motion":_motion_facts(ref),
+               "motions":{kind:_motion_facts(_plan_ref(c,plans[kind])) for kind in VIDEO_TYPES},
                "production_brief":brief,
                "video_plans":_plan_facts(plans),
                "package_prompt_version":PACKAGE_PROMPT_VERSION,
@@ -1505,14 +1532,18 @@ def _materialize_task(package_id: str):
         recorded=store.parse(pkg["facts"],{})
         if recorded.get("move",{}).get("version")!=mv["version"] or recorded.get("art",{}).get("version")!=art["version"]:
             return None
-        if recorded.get("video_plans")!=_plan_facts(_video_plans(c,pkg["move_id"],ref["id"])):
+        if recorded.get("video_plans")!=_plan_facts(_video_plans(c,pkg["move_id"])):
             return None
+        motions=recorded.get("motions") or {"teaching":recorded.get("motion",{})}
+        referenced_assets=list(dict.fromkeys(m["asset_id"] for m in motions.values() if m.get("asset_id")))
+        if len(referenced_assets)<1:return None
         visual=_master_status(c,master["id"])["visual_asset_id"]
         if not visual:return None
         previous_task_id=move["task_id"]
         if previous_task_id and not _task_lock_error(c,previous_task_id,visual,mm["version"],ref):
             c.execute("UPDATE martial_packages SET task_id=? WHERE id=?",(previous_task_id,package_id))
-            c.execute("UPDATE tasks SET ai_prepared=?,updated_at=? WHERE id=?",(store.dumps(prepared),store.now(),previous_task_id))
+            c.execute("UPDATE tasks SET ai_prepared=?,input_assets=?,updated_at=? WHERE id=?",
+                      (store.dumps(prepared),store.dumps([visual,*referenced_assets]),store.now(),previous_task_id))
             return previous_task_id
         asset=store.record(c,"assets",visual)
         if asset["type"] not in {"image","character"}:raise ValueError("定版角色形象资产类型错误")
@@ -1526,7 +1557,7 @@ def _materialize_task(package_id: str):
         assignee_id=assignee[0]
     spec={"project_id":"wuxiang","workflow_id":"WF-01","title":art["chinese_name"]+" / "+mv["payload"]["chinese_name"],
           "why":"制作经过真人动作与角色锁定的数字功法老师教学及演练资产",
-          "input_assets":[visual,ref["video_asset_id"]],"instructions":["对照真人动作与定版老师","生成教学或演练候选","专业动作 QC 后提交正式资产"],
+          "input_assets":[visual,*referenced_assets],"instructions":["对照真人动作与定版老师","生成教学或演练候选","专业动作 QC 后提交正式资产"],
           "character_lock":{"asset_id":visual,"identity":master["name"],"version":mm["version"],"forbidden_changes":mm["payload"].get("forbidden_changes",[])},
           "motion_lock":{"asset_id":ref["video_asset_id"],"move":mv["payload"]["chinese_name"],"start":ref["start_time"],
                          "end":ref["end_time"],"orientation":ref["orientation"],"key_moments":ref["key_moments"],"version":ref["version"]},
@@ -1776,15 +1807,16 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
             locked=next((r for r in c.execute("SELECT * FROM martial_motion_refs WHERE move_id=? AND status='locked' ORDER BY version DESC",(move_id,))
                          if not martial_product.historical(c,"motion_ref",r["id"])),None)
             ref=dict(locked) if locked else None
-        plans=_video_plans(c,move_id,ref["id"] if ref else None)
+        plans=_video_plans(c,move_id)
         plan=plans[asset_type]
+        track_ref=_plan_ref(c,plan)
         if usable_task:
             latest=c.execute("SELECT status,facts FROM martial_packages WHERE move_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",(move_id,)).fetchone()
             recorded=store.parse(latest["facts"],{}) if latest else {}
             if not latest or latest["status"]!="complete" or not _package_facts_current(c,move,recorded,ref,plans):
                 package_error="当前双视频规划的最新 AI 准备尚未完成"
-    source_duration=float(ref["duration"]) if ref and ref["duration"] is not None else None
-    aspect_ratio=_reference_aspect_ratio(ref)
+    source_duration=float(track_ref["duration"]) if track_ref and track_ref["duration"] is not None else None
+    aspect_ratio=_reference_aspect_ratio(track_ref)
     selected_start=float(plan["source_start"]) if plan else None
     selected_end=float(plan["source_end"]) if plan else None
     selected_duration=round(selected_end-selected_start,3) if plan else None
@@ -1844,7 +1876,7 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
     # source_start/source_end range. Validate the actual supplier input before
     # allowing even a five-second output preview to create a paid job.
     preview_error=None
-    if ref is not None and (source_duration is None or source_duration>RUNY_VIDEO_REFERENCE_MAX_SECONDS):
+    if track_ref is not None and (source_duration is None or source_duration>RUNY_VIDEO_REFERENCE_MAX_SECONDS):
         preview_error=(f"真人参考原片为 {source_duration:.2f} 秒，超过润元 Seedance 视频参考输入"
                        f"最多 {RUNY_VIDEO_REFERENCE_MAX_SECONDS} 秒；当前会发送整段原片，不能提交 5 秒样片"
                        if source_duration is not None else
@@ -1878,9 +1910,10 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
     with store.connect() as c:
         c.execute("BEGIN IMMEDIATE")  # Serialize budget and duplicate-job checks.
         move,art,mv,master,mm,ref=_facts(c,move_id)
-        plans=_video_plans(c,move_id,ref["id"])
+        plans=_video_plans(c,move_id)
         plan=plans[asset_type]
         if not plan:raise ValueError("请先保存该视频的独立制作规划")
+        track_ref=_plan_ref(c,plan)
         if not move["task_id"]:raise ValueError("生产任务尚未形成；需先有已批准的老师形象")
         task=store.record(c,"tasks",move["task_id"])
         if task["assignee_id"]!=user["id"] or task["status"]!="in_progress":
@@ -1953,7 +1986,7 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
             key="workos:martial:media:"+jid
             segments=[dict(s) for s in (estimate.get("segments") or [])]
             if edit_trial:
-                source=store.record(c,"assets",ref["video_asset_id"])
+                source=store.record(c,"assets",track_ref["video_asset_id"])
                 profile=_edit_trial_profile(move_id,source["sha256"],asset_type,cut_points)
                 if profile:
                     if len(profile["notes"])!=len(segments):raise ValueError("视频编辑试拍配置的动作段数与切点不一致")
@@ -1964,7 +1997,7 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
             reservation=estimate["estimated_cost"]/count if full else PRICE[alias]["reservation"]
             quote_source=LONG_VIDEO_RESERVATION_SOURCE if full else PRICE_SOURCE
             c.execute("INSERT INTO martial_media_jobs(id,move_id,task_id,package_id,motion_ref_id,master_version,asset_type,provider,model_alias,model,prompt_hash,prompt,character_asset_id,duration,aspect_ratio,resolution,status,request_key,idempotency_key,reserved_cost,quote_source,revision_of,generation_mode,video_plan_id,segments_json,edit_refs_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                      (jid,move_id,task["id"],pkg["id"],ref["id"],mm["version"],asset_type,route["provider"],alias,route["model"],
+                      (jid,move_id,task["id"],pkg["id"],track_ref["id"],mm["version"],asset_type,route["provider"],alias,route["model"],
                        (hashlib.sha256((prompt+store.dumps(segments)).encode()).hexdigest() if edit_trial else prompt_hash),
                        prompt,visual,duration,estimate["aspect_ratio"],"480p","queued",key,key,reservation,quote_source,
                        revision_of,generation_mode,plan["id"],store.dumps(segments),store.dumps(edit_refs),stamp,stamp))

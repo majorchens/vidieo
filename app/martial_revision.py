@@ -98,7 +98,8 @@ def build_revision_payload(package: dict, job: dict, qc: dict,
     ranges = _json(qc.get("issue_ranges"), [])
     if not isinstance(facts, dict) or not isinstance(result, dict) or not isinstance(checks, dict) or not isinstance(ranges, list):
         raise ValueError("Revision Package 输入格式无效")
-    art, move, master, motion = (facts.get(key) or {} for key in ("art", "move", "master", "motion"))
+    art, move, master = (facts.get(key) or {} for key in ("art", "move", "master"))
+    motion = (facts.get("motions") or {}).get(job.get("asset_type")) or facts.get("motion") or {}
     if not all(isinstance(value, dict) for value in (art, move, master, motion)):
         raise ValueError("原 Production Package 缺少锁定事实")
     if not master.get("id") or not move.get("version") or not motion.get("id"):
