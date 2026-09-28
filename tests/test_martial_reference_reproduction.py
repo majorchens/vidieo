@@ -174,6 +174,8 @@ class ReferenceReproductionTest(unittest.TestCase):
         self.assertTrue(claim["reference_source_url"].startswith("https://"))
         self.assertEqual(len(claim["segments"]),1)
         self.assertIn("视频 1 是唯一的动作与时序参考",claim["segments"][0]["prompt"])
+        self.assertIn("本地 0 秒即原片 33.000 秒",claim["segments"][0]["prompt"])
+        self.assertNotIn("合成后全片时长",claim["segments"][0]["prompt"])
         self.assertEqual(martial.move_detail(self.move_id,self.employee)["media"][0]["segments"][0]["duration"],14)
 
     def test_reference_clip_is_immutable_and_signed(self):

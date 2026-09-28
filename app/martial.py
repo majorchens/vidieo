@@ -1754,7 +1754,7 @@ def quote(user: dict, move_id: str, model_alias: str, count=1, generation_mode="
                 "blocked":bool(reason or cost is None),"block_reason":reason or ("完整制作预留未核定" if cost is None else None),
                 "price_source":LONG_VIDEO_RESERVATION_SOURCE if cost is not None else None,
                 "price_kind":"reservation_estimate","segments":segments,
-                "scope":"按所选真人片段逐段生成并合成候选，需员工进行动作 QC；生成模型不保证逐帧复刻",**reference_info}
+                "scope":"按所选真人片段单段生成候选，需员工进行动作 QC；生成模型不保证逐帧复刻",**reference_info}
     if generation_mode=="reproduce":
         trimmed=(plan is not None and source_duration is not None and
                  (selected_start>0.01 or selected_end<source_duration-0.01))
@@ -2004,10 +2004,9 @@ def media_claim(job_id: str) -> dict:
         segments=store.parse(job["segments_json"],[])
         for s in segments:
             s["request_key"]=job["request_key"]+f":segment:{s['index']}"
-            s["prompt"]=(job["prompt"]+f"\n当前仅制作第 {s['index']+1}/{len(segments)} 段；"
-                         f"真人原片绝对区间 {s['source_start']:.3f}–{s['source_end']:.3f} 秒。"
-                         f"本段生成目标为 {s['duration']} 秒，前文的 {job['duration']} 秒是合成后全片时长，"
-                         "传入视频已经裁成该区间；请依照其动作先后与节奏生成，不要补造其他段的动作。")
+            s["prompt"]=(job["prompt"]+f"\n视频 1 已从真人原片裁出 {s['source_start']:.3f}–"
+                         f"{s['source_end']:.3f} 秒，视频 1 的本地 0 秒即原片 {s['source_start']:.3f} 秒。"
+                         f"本次只生成这一个 {s['duration']} 秒动作单元，不引用原片其他区间。")
         expires=int(time.time())+6*3600
         return {"id":job_id,"status":job["status"],"request_key":job["request_key"],"task_id":job["task_id"],
                 "model_alias":job["model_alias"],"model":job["model"],"provider":job["provider"],
