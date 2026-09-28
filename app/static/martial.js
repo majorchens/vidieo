@@ -6,7 +6,7 @@
     [null,'万象武境'],['martial:arts','功法管理'],['martial:masters','功法老师'],['martial:assets','素材中心']
   ];
   const emptyAssetFilter=()=>({category:'',project_id:'',art_id:'',master_id:'',move_id:'',type:'',usage:'',status:'',creator:'',model:'',provider:'',date_from:'',date_to:'',q:'',tags:''});
-  const M = { overview:null, overviewAt:0, overviewPromise:null, cacheEpoch:0, assetCache:new Map(), workspaceCache:null, assetRequestVersion:0, detail:null, quote:{}, previewQuote:{}, task:null, previewUrl:null, prepareTimer:null, mediaTimer:null, filter:'all', assetFilter:emptyAssetFilter(), assetProjects:[], tab:'production', artWizard:{step:1, mode:'single', moves:[]}, assetDetail:null };
+  const M = { overview:null, overviewAt:0, overviewPromise:null, cacheEpoch:0, assetCache:new Map(), workspaceCache:null, assetRequestVersion:0, detail:null, quote:{}, previewQuote:{}, task:null, previewUrl:null, prepareTimer:null, mediaTimer:null, filter:'all', assetFilter:emptyAssetFilter(), assetProjects:[], tab:'production', artWizard:{step:1, mode:'single', moves:[]}, assetDetail:null, optimizationTrack:'teaching', optimizationDraft:{}, optimizationRevision:{} };
   const OVERVIEW_TTL=30000,ASSET_TTL=20000;
   function invalidateCache(){M.cacheEpoch++;M.overview=null;M.overviewAt=0;M.overviewPromise=null;M.assetCache.clear();M.workspaceCache=null}
   const e = esc;
@@ -417,7 +417,7 @@
     const version=state.routeVersion;
     clearTimeout(M.prepareTimer);M.prepareTimer=null;
     clearTimeout(M.mediaTimer);M.mediaTimer=null;
-    if(M.lastMove!==id){M.lastMove=id;M.moveStepOverride=null;M.sourceReplacementTrack=null}
+    if(M.lastMove!==id){M.lastMove=id;M.moveStepOverride=null;M.sourceReplacementTrack=null;M.optimizationTrack='teaching';M.optimizationDraft={};M.optimizationRevision={}}
     const [d,o,mm,available]=await Promise.all([api('/api/martial/moves/'+id),overview(),
       api('/api/martial/moves/'+id+'/multimodal').catch(()=>null),cachedAssets('/api/martial/available-assets').catch(()=>({assets:[]}))]);
     if(!routeIsCurrent(version))return;
@@ -463,7 +463,7 @@
       const reportedSegments=listValue(completeJob?.segment_progress),plannedSegments=listValue(completeJob?.segments);
       const segmentRows=(plannedSegments.length?plannedSegments:reportedSegments).map((segment,index)=>({...segment,...(reportedSegments.find(item=>Number(item.index)===Number(segment.index??index))||{})}));
       const segmentProgress=segmentRows.length?`<ol class="mw-segment-progress">${segmentRows.map((segment,index)=>`<li><span>第 ${e(Number.isFinite(Number(segment.index))?Number(segment.index)+1:index+1)} 段 · ${seconds(segment.source_start)}–${seconds(segment.source_end)}</span>${pill(segment.status||(completeJob.status==='succeeded'?'succeeded':'not_started'))}${segment.error?`<small class="mw-error">${e(segment.error)}</small>`:''}</li>`).join('')}</ol>`:'';
-      const form=canProduce&&pkg?`<form class="mw-form mw-complete-form" data-martial-form="generate" data-video-track="${e(type)}" data-generation-mode="complete" data-has-active="${activeJob?'true':'false'}" data-has-unknown="${completeJobs.some(x=>x.status==='unknown_submission')?'true':'false'}" data-has-final="${final?'true':'false'}" data-has-candidate="${candidate?'true':'false'}" data-id="${e(id)}"><input type="hidden" name="asset_type" value="${e(type)}"><input type="hidden" name="generation_mode" value="complete"><input type="hidden" name="model" value="sd2.5"><input type="hidden" name="candidate_count" value="1"><input type="hidden" name="revision_of" value=""><label>本次修正提示词（只影响${e(label)}新版视频）<textarea name="prompt_adjustment" rows="5" maxlength="1500" placeholder="例如：动作逐时刻跟随真人视频；地板保持图片 2 的材质和平面，不变成山峰；整体亮度保持图片 2，不压暗。">${e(completeJob?.prompt_adjustment||'')}</textarea></label><small>这里写入的文字会加入本次实际提交给 Seedance 的提示词。模型接收当前练功背景图，不会自动看到跟练成片；请先核对第 5 步显示的背景版本。真人动作和老师身份仍由参考素材锁定。</small>${completeJob?.prompt?`<details class="mw-collapsible"><summary>查看上一版实际提交提示词</summary><pre class="mw-prompt-text">${e(completeJob.prompt)}</pre></details>`:''}<div id="mw-quote-${e(type)}-complete" class="mw-quote mw-complete-quote" role="status">正在计算完整视频的分段与费用预留…</div><button class="primary" type="submit" disabled>${activeJob?'完整视频制作中':`制作${e(label)}完整视频`}</button></form>`:'<p class="mw-filter-note">请先完成当前两类视频的 AI 准备，再核对完整制作费用。</p>';
+      const form=canProduce?`<div class="mw-track-action">${button(`编辑${label}提示词并建新版任务`,'optimize-prompt',type)}</div>`:'';
       const previewForm=canProduce&&pkg?`<details class="mw-collapsible mw-preview-options" data-preview-options="${e(type)}"><summary>可选：先做 5 秒试拍样片</summary><p class="muted">样片只用于检查角色与画面，不能作为完整作品验收。</p><form class="mw-form" data-martial-form="generate" data-video-track="${e(type)}" data-generation-mode="preview" data-id="${e(id)}"><input type="hidden" name="asset_type" value="${e(type)}"><input type="hidden" name="generation_mode" value="preview"><input type="hidden" name="model" value="sd2.5"><input type="hidden" name="candidate_count" value="1"><input type="hidden" name="revision_of" value=""><div id="mw-quote-${e(type)}-preview" class="mw-quote" role="status">打开后读取样片费用…</div><button class="outline" type="submit" disabled>生成 5 秒试拍样片</button></form>${preview?`<div class="mw-preview-result">${video(preview.candidate_asset_id,'mw-main-video')}</div>`:''}</details>`:'';
       const trialJobs=jobs.filter(x=>x.generation_mode==='edit_trial');
       const trialForm=canProduce&&pkg?`<details class="mw-collapsible mw-preview-options" data-edit-trial-options="${e(type)}"><summary>视频编辑试拍 · 真人动作与武术背景</summary><p class="muted">使用教学包中两张试拍参考图；真人视频只负责动作和时序。试拍结果不能选用或定版为正式作品，正式教学包仍按岗位验收。</p><form class="mw-form" data-martial-form="generate" data-video-track="${e(type)}" data-generation-mode="edit_trial" data-id="${e(id)}"><input type="hidden" name="asset_type" value="${e(type)}"><input type="hidden" name="generation_mode" value="edit_trial"><input type="hidden" name="model" value="sd2.5"><input type="hidden" name="candidate_count" value="1"><label>自然切点（原片秒数；不超过 30 秒时留空）<input name="cut_points" value="${id==='mv_flowing_cloud_01'&&type==='teaching'?'12':''}" placeholder="例如 12；多个切点用英文逗号分隔"></label><div id="mw-quote-${e(type)}-edit_trial" class="mw-quote" role="status">打开后核对试拍参考、切点与费用…</div><button class="outline" type="submit" disabled>制作${e(label)}视频编辑试拍</button></form>${trialJobs.map(x=>mediaCard(x,ref,isManager(),d.media.indexOf(x),'history')).join('')}</details>`:'';
@@ -479,11 +479,10 @@
     const remaking=videoKinds.some(([type])=>{const final=activeFinals.find(x=>x.asset_type===type),job=currentMedia.find(x=>x.asset_type===type&&x.generation_mode==='complete');return final&&job&&job.id!==final.media_job_id&&job.status!=='failed'});
     const currentLabel=hasRevision?'需要返修':remaking?(current===5?'新版制作中':current===6?'新版待选择':'新版待验收'):allFinished?'已完成':current===7?'动作验收':MOVE_STEPS[current-1];
     const nextText=hasRevision?'查看对应视频的修改要求，决定何时重新生成':remaking?'旧正式视频仍保留；请继续核对新版并完成动作验收':allFinished?'讲解演示和跟教练跟练均已形成正式作品':current===4?(packagePending?'AI 正在准备，完成后自动显示下一步':aiReady?'点击让 AI 分别准备两类视频':aiBlocker):['请核对并完善动作标准','上传这招的真人动作视频','分别保存两类视频方案','','核对讲解与跟练的分段和预计费用后，分别开始完整制作','对照真人动作并选择视频','分别完成动作验收'][current-1];
-    const optimizeTypes=videoKinds.filter(([type])=>currentMedia.some(job=>job.asset_type===type&&job.generation_mode==='complete'));
-    const optimize=canProduce&&optimizeTypes.length?panel('优化单条视频',`<p>只改提示词：进入该视频制作卡片，填写本次修正提示词，核对费用后生成新版。更换真人素材：上传并确认新视频，再到第 3 步只更新对应视频方案。旧成片保留到新版通过验收并定版。</p><div class="mw-optimize-rows">${optimizeTypes.map(([type,label])=>`<div><strong>${e(label)}</strong>${pkg?button('改提示词并生成新版','optimize-prompt',type):''}${button('更换真人视频素材','optimize-source',type)}</div>`).join('')}</div>`):'';
+    const optimize=canProduce?`<section class="mw-panel mw-optimization" id="mw-optimization"><div class="mw-optimization-heading"><div><span class="eyebrow">当前招式 · 视频操作区</span><h3>新建视频优化任务</h3><p>讲解与跟练分别制作。沿用现有真人素材时，只写这次要改的问题即可；上传新素材是可选操作。</p></div><span class="mw-optimization-tag">Seedance 2.5 · 完整视频</span></div><div class="mw-optimization-tabs" role="tablist" aria-label="选择要优化的视频">${videoKinds.map(([type,label])=>`<button type="button" role="tab" data-martial-action="optimization-track" data-id="${e(type)}" aria-selected="${M.optimizationTrack===type}" class="${M.optimizationTrack===type?'active':''}">${e(label)}${activeFinals.some(x=>x.asset_type===type)?' · 已有成片':''}</button>`).join('')}</div>${videoKinds.map(([type,label])=>{const plan=plans[type],source=d.motions.find(x=>x.id===plan?.motion_ref_id),jobs=currentMedia.filter(x=>x.asset_type===type&&x.generation_mode==='complete'),latest=jobs[0],final=activeFinals.find(x=>x.asset_type===type),active=jobs.some(x=>inProgress(x.status));return `<div class="mw-optimization-pane" data-optimization-pane="${e(type)}" ${M.optimizationTrack===type?'':'hidden'}><div class="mw-optimization-source"><div><b>① 真人动作素材</b><strong>${source?`${e(source.asset_name||source.video_asset_id)} · V${e(source.version)} · ${seconds(plan.source_start)}–${seconds(plan.source_end)}`:'尚未选择这条视频的真人素材'}</strong><small>${source?'本次默认沿用，无需再次上传。':'请先上传并确认真人动作，再保存此视频方案。'}</small></div>${button('更换真人视频','optimize-source',type)}</div><div class="mw-optimization-source"><div><b>② 当前结果与版本</b><strong>${latest?`最近任务 ${e(latest.id)} · ${e(words[latest.status]||latest.status)}`:'尚无完整视频任务'}</strong><small>${final?'旧正式成片保留，直到新版通过验收并定版。':'新版生成后仍需武术同事对照真人动作验收。'}</small></div>${final?`<a href="${a(final.asset_id)}" target="_blank" rel="noopener">查看现有成片</a>`:''}</div>${pkg?`<form class="mw-form mw-optimization-form" data-martial-form="generate" data-video-track="${e(type)}" data-generation-mode="complete" data-has-active="${active?'true':'false'}" data-has-unknown="${jobs.some(x=>x.status==='unknown_submission')?'true':'false'}" data-has-final="${final?'true':'false'}" data-has-candidate="${latest?.candidate_asset_id?'true':'false'}" data-id="${e(id)}"><input type="hidden" name="asset_type" value="${e(type)}"><input type="hidden" name="generation_mode" value="complete"><input type="hidden" name="model" value="sd2.5"><input type="hidden" name="candidate_count" value="1"><input type="hidden" name="revision_of" value="${e(M.optimizationRevision[type]||'')}"><label>③ 本次提示词修改要求<textarea name="prompt_adjustment" rows="5" maxlength="1500" placeholder="直接写哪里不对、希望怎样改。例如：双手轨迹与真人逐时刻一致；地板保持练功背景图的平面和材质，不变山峰；整体亮度与跟练一致。">${e(Object.hasOwn(M.optimizationDraft,type)?M.optimizationDraft[type]:latest?.prompt_adjustment||'')}</textarea></label><small>用日常语言写即可；这里的文字会进入本次实际提交给 Seedance 的提示词。留空则沿用当前规则制作新版。</small>${latest?.prompt?`<details class="mw-collapsible"><summary>查看上一版实际提交的完整提示词</summary><pre class="mw-prompt-text">${e(latest.prompt)}</pre></details>`:''}<div class="mw-optimization-submit"><b>④ 核对背景、分段和费用</b><div id="mw-quote-${e(type)}-complete" class="mw-quote mw-complete-quote" role="status">正在读取本次制作条件…</div><button class="primary" type="submit" disabled>创建${e(label)}新版制作任务</button></div></form>`:`<div class="mw-blocked"><strong>先完成 AI 准备</strong><p>${e(aiReady?'当前方案的 AI 准备尚未完成':aiBlocker)}</p>${button('查看 AI 准备步骤','jump-ai')}</div>`}</div>`}).join('')}</section>`:'';
     const maxReachable=currentMedia.some(x=>x.generation_mode==='complete'&&x.selection)?7:currentMedia.some(x=>x.generation_mode==='complete'&&x.candidate_asset_id)?6:current;
     const history=historicalMedia.length?`<details class="mw-panel mw-collapsible"><summary>历史视频与验收（${historicalMedia.length}）</summary><p class="muted">这些视频使用的是旧真人参考或旧制作方案，保留原记录；不会被算作当前两类视频的完成结果。</p>${historicalMedia.map(x=>mediaCard(x,d.motions.find(y=>y.id===x.motion_ref_id),isManager(),d.media.indexOf(x),'history')).join('')}</details>`:'';
-    layout(name,`万象武境 / ${d.art.chinese_name} / ${name}`,`<div class="mw-page-head mw-move-head"><div><span class="eyebrow">${e(d.art.chinese_name)} / 第 ${String(siblings[at]?.display_order||m.ordinal).padStart(2,'0')} 式</span><h2>${e(name)}</h2><p>当前：${e(currentLabel)}</p></div><div class="mw-header-actions">${at>0?plainLink('← 上一式','martial:move:'+siblings[at-1].id):''}${at<siblings.length-1?plainLink('下一式 →','martial:move:'+siblings[at+1].id):''}</div></div>${moveAssetSummary(mm,id,available)}${moveStepper(current,maxReachable)}<div class="mw-next-work"><strong>下一步：${e(currentLabel)}</strong><span>${e(nextText)}</span></div>${optimize}${parts.map((html,i)=>`<section class="mw-step-panel" data-mw-step-panel="${i+1}" ${i+1===step?'':'hidden'}>${html}</section>`).join('')}${history}${admin}${config}`,link('返回功法','martial:art:'+d.art.id));
+    layout(name,`万象武境 / ${d.art.chinese_name} / ${name}`,`<div class="mw-page-head mw-move-head"><div><span class="eyebrow">${e(d.art.chinese_name)} / 第 ${String(siblings[at]?.display_order||m.ordinal).padStart(2,'0')} 式</span><h2>${e(name)}</h2><p>当前：${e(currentLabel)}</p></div><div class="mw-header-actions">${at>0?plainLink('← 上一式','martial:move:'+siblings[at-1].id):''}${at<siblings.length-1?plainLink('下一式 →','martial:move:'+siblings[at+1].id):''}</div></div>${optimize}${moveAssetSummary(mm,id,available)}${moveStepper(current,maxReachable)}<div class="mw-next-work"><strong>下一步：${e(currentLabel)}</strong><span>${e(nextText)}</span></div>${parts.map((html,i)=>`<section class="mw-step-panel" data-mw-step-panel="${i+1}" ${i+1===step?'':'hidden'}>${html}</section>`).join('')}${history}${admin}${config}`,link('返回功法','martial:art:'+d.art.id));
     if(packagePending&&!pkg)schedulePreparationRefresh(state.view);
     if(canProduce&&pkg)videoKinds.forEach(([type])=>refreshQuote(id,type,'complete'));
     if(currentMedia.some(job=>inProgress(job.status)))scheduleMediaRefresh(state.view);
@@ -492,6 +491,12 @@
     const step=M.moveStepOverride||M.moveStepCurrent||1;
     document.querySelectorAll('[data-mw-step-panel]').forEach(el=>el.hidden=Number(el.dataset.mwStepPanel)!==step);
     document.querySelectorAll('[data-mw-step]').forEach(el=>{const n=Number(el.dataset.mwStep);el.classList.toggle('active',n===M.moveStepCurrent);el.classList.toggle('viewing',n===step&&n!==M.moveStepCurrent);el.setAttribute('aria-current',n===M.moveStepCurrent?'step':'false')});
+  }
+  function selectOptimizationTrack(type){
+    if(!videoKinds.some(([value])=>value===type))return;
+    M.optimizationTrack=type;
+    document.querySelectorAll('[data-optimization-pane]').forEach(el=>{el.hidden=el.dataset.optimizationPane!==type});
+    document.querySelectorAll('[data-martial-action="optimization-track"]').forEach(el=>{const active=el.dataset.id===type;el.classList.toggle('active',active);el.setAttribute('aria-selected',String(active))});
   }
   function refreshTotalQuote(){
     const box=$('#mw-complete-overview');if(!box)return;
@@ -519,7 +524,7 @@
       const q=await api(`/api/martial/quote?move=${encodeURIComponent(id)}&model=${encodeURIComponent(model)}&count=${encodeURIComponent(count)}&generation_mode=${encodeURIComponent(mode)}&asset_type=${encodeURIComponent(type)}&cut_points=${encodeURIComponent(cutPoints)}`);
       if(f!==$(selector)||f.elements.model.value!==model||f.elements.candidate_count.value!==count||(f.elements.cut_points?.value.trim()||'')!==cutPoints)return;
       cache[type]=q;
-      const taskReady=['assigned','in_progress'].includes(M.task?.status)||(mode==='complete'&&M.task?.status==='accepted'),taskAssigned=M.task?.assignee_id===state.user.id;
+      const taskReady=['assigned','in_progress'].includes(M.task?.status)||(mode==='complete'&&M.task?.status==='accepted'),taskAssigned=M.task?.assignee_id===state.user.id||isManager();
       const missing=!!M.detail?.packages?.find(x=>x.status==='complete')?.result?.missing_inputs?.length;
       const active=mode==='complete'&&f.dataset.hasActive==='true';
       const unknown=mode==='complete'&&f.dataset.hasUnknown==='true',final=mode==='complete'&&f.dataset.hasFinal==='true';
@@ -529,7 +534,7 @@
       if(mode==='complete'){
         const segments=Array.isArray(q.segments)?q.segments:[];
         box.innerHTML=`<div class="mw-quote-head"><span>Seedance 2.5 · ${e(q.resolution||'480p')} · 预计 ${segments.length||'待定'} 段</span><strong>${q.estimated_cost==null?'费用预留待核算':`预计预留 ${money(q.estimated_cost)}`}</strong></div><ol class="mw-quote-segments">${segments.map((segment,index)=>`<li><span>第 ${e(Number.isFinite(Number(segment.index))?Number(segment.index)+1:index+1)} 段 · 真人 ${seconds(segment.source_start)}–${seconds(segment.source_end)} · 成片 ${e(segment.duration)} 秒</span><b>${money(segment.estimated_cost)}</b></li>`).join('')||'<li>分段计划待核验</li>'}</ol><small>${backgroundText}各段生成秒数向上取整，合成后按计划裁至 ${seconds(q.target_duration)}。${budgetText}${e(reason||'可按以上分段开始完整制作。')}</small>`;
-        button.textContent=active?'完整视频制作中':final?`生成新版${videoLabel(type)}`:f.dataset.hasCandidate==='true'?`再制作一版${videoLabel(type)}`:`制作${videoLabel(type)}完整视频`;
+        button.textContent=active?'已有任务制作中':`创建${videoLabel(type)}${final||f.dataset.hasCandidate==='true'?'新版':''}制作任务`;
         button.disabled=!!reason||q.estimated_cost==null||!segments.length;
         refreshTotalQuote();
       }else if(mode==='edit_trial'){
@@ -609,6 +614,8 @@
     if(form.dataset.martialForm==='link-motion'&&ev.target.name==='asset_id')loadPreview(form,a(ev.target.value),ev.target.selectedOptions[0]?.textContent||'已登记素材');
   },true);
   document.addEventListener('input',ev=>{
+    const optimization=ev.target.closest?.('.mw-optimization-form');
+    if(optimization&&ev.target.name==='prompt_adjustment')M.optimizationDraft[optimization.dataset.videoTrack]=ev.target.value;
     const form=ev.target.closest?.('[data-martial-form="video-plan"]');
     if(form&&['source_start','source_end','target_duration'].includes(ev.target.name))syncVideoPlan(form,ev.target.name!=='target_duration');
     const trial=ev.target.closest?.('[data-generation-mode="edit_trial"]');
@@ -722,13 +729,14 @@
         await api(`/api/martial/motions/${draft.id}/confirm`,{});
         notice('已将原片整段确认为新版真人参考；请按原片结构重新准备 AI 内容');go(state.view);return;
       }
-      if(action==='jump-generate'){M.moveStepOverride=5;selectMoveTab();return}
-      if(action==='optimize-prompt'){
-        const form=$(`[data-martial-form="generate"][data-video-track="${id}"][data-generation-mode="complete"]`);
-        if(!form)throw new Error('请先完成当前视频方案的 AI 准备');
-        M.moveStepOverride=5;selectMoveTab();form.scrollIntoView({behavior:'smooth',block:'start'});
-        form.elements.prompt_adjustment?.focus();return;
+      if(action==='jump-generate'||action==='optimize-prompt'){
+        if(action==='optimize-prompt')selectOptimizationTrack(id);
+        document.querySelector('#mw-optimization')?.scrollIntoView({behavior:'smooth',block:'start'});
+        if(action==='optimize-prompt')document.querySelector(`[data-optimization-pane="${id}"] textarea[name="prompt_adjustment"]`)?.focus();
+        return;
       }
+      if(action==='optimization-track'){selectOptimizationTrack(id);return}
+      if(action==='jump-ai'){M.moveStepOverride=4;selectMoveTab();document.querySelector('[data-mw-step-panel="4"]')?.scrollIntoView({behavior:'smooth',block:'start'});return}
       if(action==='optimize-source'){
         M.sourceReplacementTrack=id;
         M.moveStepOverride=2;selectMoveTab();
@@ -749,7 +757,7 @@
       else if(action==='start-task')out=await api(`/api/tasks/${id}/start`,{});
       else if(action==='select'){const reason=prompt('为什么选用这个候选？请写明动作与角色表现。');if(!reason)return;out=await api(`/api/martial/media/${id}/select`,{reason})}
       else if(action==='final')out=await api(`/api/martial/media/${id}/final`,{});
-      else if(action==='revise'){const type=M.detail?.media?.find(x=>x.id===id)?.asset_type,f=$(`[data-martial-form="generate"][data-video-track="${type}"][data-generation-mode="complete"]`);if(!f)throw new Error('请先完成这一类视频的 AI 准备');f.elements.revision_of.value=id;M.moveStepOverride=5;selectMoveTab();f.scrollIntoView({behavior:'smooth'});notice(`已带入${videoLabel(type)}的返修要求，请核对时长与预计费用`);return}
+      else if(action==='revise'){const type=M.detail?.media?.find(x=>x.id===id)?.asset_type,f=$(`[data-martial-form="generate"][data-video-track="${type}"][data-generation-mode="complete"]`);if(!f)throw new Error('请先完成这一类视频的 AI 准备');M.optimizationRevision[type]=id;f.elements.revision_of.value=id;selectOptimizationTrack(type);document.querySelector('#mw-optimization')?.scrollIntoView({behavior:'smooth',block:'start'});f.elements.prompt_adjustment?.focus();notice(`已带入${videoLabel(type)}的返修要求，请编辑提示词并核对费用`);return}
       else if(['plan-start','plan-end','plan-play','plan-use-length'].includes(action)){
         const form=b.closest('[data-martial-form="video-plan"]'),player=form?.querySelector('.mw-plan-player');if(!form||!player)throw new Error('请先打开真人参考视频');
         if(action==='plan-start'){form.elements.source_start.value=player.currentTime.toFixed(2);syncVideoPlan(form,true)}
@@ -932,7 +940,7 @@
         path=`/api/martial/moves/${id}/link-motion`;
       }
       else if(kind==='budget'){d.budget_cap=d.budget_mode==='unlimited'?'unlimited':Number(d.budget_cap);delete d.budget_mode;path=`/api/martial/moves/${id}/budget`}
-      else if(kind==='generate'){const quoteCache=d.generation_mode==='preview'?M.previewQuote:d.generation_mode==='edit_trial'?M.editTrialQuote:M.quote,q=quoteCache[d.asset_type];if(!q||q.blocked||q.estimated_cost==null)throw new Error(q?.block_reason||'这一类视频的费用或预算尚未确认');if(!M.detail?.package_current||M.detail?.packages?.[0]?.result?.missing_inputs?.length)throw new Error('AI 还缺少必要素材或视频方案已变更');if(M.task?.status==='assigned'){await api(`/api/tasks/${M.task.id}/start`,{});M.task.status='in_progress'}d.candidate_count=Number(d.candidate_count);path=`/api/martial/moves/${id}/generate`}
+      else if(kind==='generate'){const quoteCache=d.generation_mode==='preview'?M.previewQuote:d.generation_mode==='edit_trial'?M.editTrialQuote:M.quote,q=quoteCache[d.asset_type];if(!q||q.blocked||q.estimated_cost==null)throw new Error(q?.block_reason||'这一类视频的费用或预算尚未确认');if(!M.detail?.package_current||M.detail?.packages?.[0]?.result?.missing_inputs?.length)throw new Error('AI 还缺少必要素材或视频方案已变更');if(M.task?.status==='assigned'&&M.task.assignee_id===state.user.id){await api(`/api/tasks/${M.task.id}/start`,{});M.task.status='in_progress'}d.candidate_count=Number(d.candidate_count);path=`/api/martial/moves/${id}/generate`}
       else if(kind==='qc'){
         d.major_dispute=!!f.elements.major_dispute.checked;
         d.checks=Object.fromEntries(QC_CHECKS.map(([key])=>[key,d['check_'+key]]));for(const [key] of QC_CHECKS)delete d['check_'+key];
@@ -941,7 +949,7 @@
         path=`/api/martial/media/${id}/qc`;
       }
       else throw new Error('未知表单');
-      await api(path,d);if(kind==='generate')M.moveStepOverride=null;notice(kind==='generate'?(d.generation_mode==='complete'?'完整视频已进入后台制作；本页会更新进度':d.generation_mode==='edit_trial'?'视频编辑试拍已进入后台制作；只供动作审看':'5 秒试拍样片已进入后台制作'):kind==='budget'?'本招预算方式已保存；请重新核对完整视频的费用预留':'已保存');
+      const result=await api(path,d);if(kind==='generate'){M.moveStepOverride=null;delete M.optimizationDraft[d.asset_type];delete M.optimizationRevision[d.asset_type]}notice(kind==='generate'?(d.generation_mode==='complete'?`${videoLabel(d.asset_type)}新版任务 ${result?.[0]?.id||''} 已创建；本页会更新进度`:d.generation_mode==='edit_trial'?'视频编辑试拍已进入后台制作；只供动作审看':'5 秒试拍样片已进入后台制作'):kind==='budget'?'本招预算方式已保存；请重新核对完整视频的费用预留':'已保存');
       if(kind==='move')go('martial:art:'+d.martial_art_id);else go(state.view);
     }catch(err){notice(err.message,true)}finally{if(b){b.disabled=false;b.removeAttribute('aria-busy');b.classList.remove('is-busy')}}
   },true);

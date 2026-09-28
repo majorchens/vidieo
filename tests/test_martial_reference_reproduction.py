@@ -430,6 +430,24 @@ class ReferenceReproductionTest(unittest.TestCase):
             self.assertEqual(store.record(c,"tasks",tid)["status"],"in_progress")
             self.assertEqual(c.execute("SELECT prompt_adjustment FROM martial_media_jobs WHERE id=?",(job["id"],)).fetchone()[0],"保持练功地面和亮度")
 
+    def test_manager_can_create_complete_video_task_without_changing_assignee(self):
+        martial.save_video_plan(self.employee,self.move_id,{"asset_type":"teaching",
+            "motion_ref_id":self.ref["id"],"source_start":0,"source_end":15,
+            "target_duration":15,"brief":"讲解完整视频"})
+        package=martial.request_package(self.employee,self.move_id)
+        tid=martial.package_report(package["id"],{"status":"complete","body":self.body("按参考动作")})["task_id"]
+        with store.connect() as c:
+            before=store.record(c,"tasks",tid)
+            self.assertEqual(before["status"],"assigned")
+            assignee=before["assignee_id"]
+        job=martial.create_media(self.manager,self.move_id,{"generation_mode":"complete",
+            "asset_type":"teaching","model":"sd2.5","prompt_adjustment":"地板保持平整，动作按真人参考"})[0]
+        with store.connect() as c:
+            task=store.record(c,"tasks",tid)
+            self.assertEqual(task["status"],"in_progress")
+            self.assertEqual(task["assignee_id"],assignee)
+            self.assertEqual(c.execute("SELECT prompt_adjustment FROM martial_media_jobs WHERE id=?",(job["id"],)).fetchone()[0],"地板保持平整，动作按真人参考")
+
     def test_new_brief_invalidates_cache_and_pending_package_blocks_old_prompt(self):
         old=martial.request_package(self.employee,self.move_id)
         self.assertEqual(old["id"],martial.request_package(self.employee,self.move_id)["id"])

@@ -283,10 +283,10 @@ class Handler(BaseHTTPRequestHandler):
             if path in {"/","/index.html"}:
                 self.send_file(STATIC/"index.html","text/html; charset=utf-8");return
             if path=="/app.js": self.send_file(STATIC/"app.js","application/javascript; charset=utf-8",True);return
-            if path=="/martial.js": self.send_file(STATIC/"martial.js","application/javascript; charset=utf-8",True);return
+            if path=="/martial.js": self.send_file(STATIC/"martial.js","application/javascript; charset=utf-8");return
             if path=="/ai_studio.js": self.send_file(STATIC/"ai_studio.js","application/javascript; charset=utf-8",True);return
             if path=="/styles.css": self.send_file(STATIC/"styles.css","text/css; charset=utf-8",True);return
-            if path=="/martial.css": self.send_file(STATIC/"martial.css","text/css; charset=utf-8",True);return
+            if path=="/martial.css": self.send_file(STATIC/"martial.css","text/css; charset=utf-8");return
             if path=="/ai_studio.css": self.send_file(STATIC/"ai_studio.css","text/css; charset=utf-8",True);return
             if path.startswith("/api/martial/source/"):
                 asset_id=path.rsplit("/",1)[-1]

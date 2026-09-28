@@ -1961,8 +1961,11 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
         if not move["task_id"]:raise ValueError("生产任务尚未形成；需先有已批准的老师形象")
         task=store.record(c,"tasks",move["task_id"])
         reopening=task["status"]=="accepted" and generation_mode=="complete"
-        if task["assignee_id"]!=user["id"] or (task["status"]!="in_progress" and not reopening):
-            raise PermissionError("只能为本人进行中的武学任务发起生成")
+        manager_complete=user["role"] in {"founder","manager"} and generation_mode=="complete"
+        manager_start=manager_complete and task["status"]=="assigned"
+        if not ((task["assignee_id"]==user["id"] and (task["status"]=="in_progress" or reopening)) or
+                (manager_complete and task["status"] in {"assigned","in_progress","accepted"})):
+            raise PermissionError("只有任务负责人或管理者可为当前武学任务发起完整视频制作")
         pkg=c.execute("SELECT * FROM martial_packages WHERE move_id=? AND motion_ref_id=? AND master_version=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
                       (move_id,ref["id"],mm["version"])).fetchone()
         if not pkg or pkg["status"]!="complete":raise ValueError("当前锁定版本的最新 AI 准备尚未完成")
@@ -2037,6 +2040,8 @@ def create_media(user: dict, move_id: str, data: dict) -> list[dict]:
             prompt_hash=hashlib.sha256(prompt.encode()).hexdigest()
         if reopening:
             store.update_task_status(c,task["id"],{"accepted"},"in_progress",user["id"],"正式视频制作新版")
+        elif manager_start:
+            store.update_task_status(c,task["id"],{"assigned"},"in_progress",user["id"],"管理者发起正式视频制作")
         created=[]
         for _ in range(count):
             jid="mj_"+secrets.token_hex(8);stamp=store.now()
