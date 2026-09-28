@@ -14,6 +14,8 @@
 
 现场试生产发现普通参考视频生成与 2026-09-28 视频编辑试拍输入不同。视频制作页现有独立的“视频编辑试拍”入口：先在教学包将含老师的场景图和纯背景图分别关联为 `pilot_scene`、`pilot_background`；两张图只作试拍参考，不满足正式美术依赖。员工选用已锁定真人视频区间，超过 30 秒时须填真人确认的自然切点；连接器按原片区间裁为 1080 边长、30fps 的参考片，向润元 Seedance 2.5 以 `duration=-1`、`ratio=adaptive`、无音轨及两张图片参考提交 `video_edit`。每段保存原片区间、图版本与哈希、Prompt 哈希、供应商任务与费用记录。只有真人源哈希及切点匹配时，才附上本片已核对的动作阶段提示；其他功法使用通用复刻提示，不猜动作时码。该入口生成的 `edit_trial` 候选只能对照，不能选用、定版、计入 `motion_mapping` 或解除 Production Run 的 Blocked。正式教学仍须美术正式背景与场景、武术 Review、声音和最终视听验收。供应商参考生成不保证严格逐帧 1:1。
 
+公司工作流的润元适配器须支持这一视频编辑参数组合。当前运行代码已更新；其源目录暂非 Git 仓库，恢复时应对该目录应用 `deploy/patches/company-workflow-runy-video-edit.patch`，再运行该工作流的 `tests/test_runy_motion_references.py` 并重启服务。补丁仅放行 SD2.5、单条真人参考视频、`duration=-1` 与 `ratio=adaptive` 同时满足的请求。
+
 Creative Lab 的本地实验文件经选择后，用 `scripts/import_creative_lab_asset.py`通过 Work OS 登录上传到同一个云端 Asset Center，记录实验编号、原相对路径和 SHA-256；重复导入同源同哈希文件会复用登记。导入仅产生实验素材，正式教学包拒绝绑定未复核的实验资产。负责人审查 Learning Review 并记录具体依据后可单独批准该资产进入正式制作。实验结论还须明确适用范围和反例、人工确认后，才写入 Git 中 `app/production_rules.json`，并把对应 Prompt/Workflow 版本绑定到正式教学包。程序只读取 `active` 且具备审查来源、审查人、证据哈希、适用条件和反例的规则，批准 Manifest 锁定实际使用的规则。当前规则登记为空：Batch 001 的通用“结果变化可见”结论仍是导演参考，尚无下一批作品证明其正式跨批生产效果，不等于《流云掌》标准动作已通过验证；Batch 002 不会自动晋级。本仓库不读取或更改正在运行的 Batch 002 状态。
 
 例：`python3 scripts/import_creative_lab_asset.py --username <Work OS账号> --project-id wuxiang --experiment-id W01 --source-ref 'Creative Lab/Wushu/W01/sample.jpg' --file '<本地素材路径>'`。脚本交互输入现有密码，不保存密码。负责人已有 Learning Review 结论时，可追加 `--learning-review-ref 'Creative Lab/Batch_001_Learning_Review.md' --review-notes '<实际审查依据>'`；仅导入不会自动批准或生成媒体。

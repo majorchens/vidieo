@@ -1,0 +1,23 @@
+--- a/app/runy_provider.py
++++ b/app/runy_provider.py
+@@ -191,8 +191,9 @@
+     if selected not in ALLOWED_MODELS:
+         raise ProviderError("unsupported runy model %r; allowed: %s" % (selected, ", ".join(ALLOWED_MODELS)))
+ 
+-    if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
+-        raise ProviderError("duration must be a positive integer")
++    edit_mode = duration == -1
++    if isinstance(duration, bool) or not isinstance(duration, int) or (duration <= 0 and not edit_mode):
++        raise ProviderError("duration must be a positive integer, or -1 for video edit")
+     if resolution not in RESOLUTIONS:
+         raise ProviderError("resolution must be one of: %s" % ", ".join(RESOLUTIONS))
+     if ratio not in RATIOS and not (ratio is None and first_frame_url is not None):
+@@ -202,6 +203,8 @@
+         raise ProviderError("generate_audio must be a boolean")
+     refs = _reference_list(image_urls, "image_urls")
+     motion_refs = _reference_list(video_urls, "video_urls")
++    if edit_mode and (selected != "doubao-seedance-2-5" or len(motion_refs) != 1 or ratio != "adaptive"):
++        raise ProviderError("video edit requires Seedance 2.5, one reference video, duration=-1 and ratio=adaptive")
+     first_frame = _validate_reference(first_frame_url) if first_frame_url is not None else None
+     if first_frame is not None and (refs or motion_refs):
+         raise ProviderError('润元首帧模式不能与参考媒体混用：first_frame_url 与 image_urls/video_urls 互斥；连续性图片可放入 image_urls 作为普通参考图')
