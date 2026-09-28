@@ -176,7 +176,8 @@
       if(state.routeVersion!==token)return;
       A.artifacts=r.artifacts||r.items||[];A.artifactsAt=Date.now();
     }
-    const items=A.artifacts.filter(x=>(!filters.capability||x.capability===filters.capability)&&
+    const group=status=>['queued','running','submitted','dispatching','download_pending','technical_check','unknown_submission'].includes(status)?'running':['complete','completed','succeeded'].includes(status)?'complete':['failed','disabled'].includes(status)?'failed':'running';
+    const items=A.artifacts.filter(x=>(!filters.status||filters.status==='all'||group(x.status)===filters.status)&&(!filters.capability||x.capability===filters.capability)&&
       (!filters.project_id||x.project_id===filters.project_id)&&
       (!filters.date_from||x.created_at?.slice(0,10)>=filters.date_from)&&
       (!filters.date_to||x.created_at?.slice(0,10)<=filters.date_to));
@@ -186,13 +187,14 @@
     A.view='history';const token=state.routeVersion;
     shell('创作记录','<div class="ai-loading">正在读取创作记录…</div>');
     await load();if(state.routeVersion!==token)return;
-    shell('创作记录',`<div class="ai-toolbar"><select id="ai-history-type"><option value="">全部类型</option>${Object.entries(labels).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select><select id="ai-history-project">${projectOptions('','全部项目')}</select><label>起始日期<input id="ai-history-from" type="date"></label><label>结束日期<input id="ai-history-to" type="date"></label><button class="outline" data-ai-action="filter">筛选</button></div><div id="ai-list" class="ai-results"><div class="ai-loading">正在整理结果…</div></div>`);
+    shell('创作记录',`<div class="ai-toolbar"><select id="ai-history-type"><option value="">全部类型</option>${Object.entries(labels).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select><select id="ai-history-project">${projectOptions('','全部项目')}</select><label>起始日期<input id="ai-history-from" type="date"></label><label>结束日期<input id="ai-history-to" type="date"></label><button class="outline" data-ai-action="filter">筛选</button></div>${objectTabs('ai-history',[['all','全部记录','<div id="ai-list-all" class="ai-results"></div>'],['running','进行中','<div id="ai-list-running" class="ai-results"></div>'],['complete','已完成','<div id="ai-list-complete" class="ai-results"></div>'],['failed','需处理','<div id="ai-list-failed" class="ai-results"></div>']],'all')}`);
     for(const [id,value] of Object.entries(A.historyFilters)){
       const control=$ai('#ai-history-'+id);if(control)control.value=value;
     }
-    await listArtifacts({capability:A.historyFilters.type,project_id:A.historyFilters.project,
-      date_from:A.historyFilters.from,date_to:A.historyFilters.to});
+    await renderHistoryStatus(state.objectTabs.get('ai-history')||'all');
   }
+  function renderHistoryStatus(status){return listArtifacts({status,capability:A.historyFilters.type,project_id:A.historyFilters.project,
+    date_from:A.historyFilters.from,date_to:A.historyFilters.to},'#ai-list-'+status)}
 
   async function admin(){
     if(!isManager())throw new Error('没有管理权限'); A.view='admin';
@@ -205,7 +207,12 @@
     const routes=`<div class="ai-table-scroll"><table><thead><tr><th>业务能力</th><th>主路由</th><th>备选</th><th>状态</th><th>控制</th></tr></thead><tbody>${(d.routes||[]).map(x=>`<tr><td>${E(x.business_model)}</td><td>${E(x.primary||'未接入')}</td><td>${E(x.secondary||'—')}</td><td>${E(x.status)}</td><td><button class="outline" data-ai-action="route-toggle" data-key="${E(x.route_key)}" data-provider="${E(x.primary||(x.route_key==='image'?'wanjie':''))}" data-enabled="${x.enabled?'1':'0'}">${x.enabled?'停用':'启用'}</button></td></tr>`).join('')}</tbody></table></div>`;
     const calls=rows(d.calls||[],[['created_at','时间'],['provider','平台'],['model','模型'],['capability','用途'],['status','状态'],['input_tokens','输入 token'],['output_tokens','输出 token'],['actual_cost','实际费用'],['error','错误']]);
     const budget=`<form class="ai-form" data-ai-budget><label>预算层级<select name="scope"><option value="project">项目</option><option value="user">员工</option><option value="task">任务</option></select></label><label>编号<input name="scope_id" required placeholder="项目 / 员工 / 任务编号"></label><label>上限（元）<input name="cap_cny" type="number" min="0" max="10000" step="0.01" required></label><button class="primary">保存预算</button></form><p class="ai-help">默认项目上限 ¥${E(d.defaults?.project_cap_cny)}、个人上限 ¥${E(d.defaults?.user_cap_cny)}；任务预算还受原任务额度限制。</p>${rows(d.budgets||[],[['scope','层级'],['scope_id','编号'],['cap_cny','上限'],['updated_at','更新时间']])}`;
-    shell('AI 能力管理',`<div class="ai-admin-grid"><section class="ai-admin-card"><h3>Provider</h3>${providers}</section><section class="ai-admin-card"><h3>模型与真实状态</h3>${models}</section><section class="ai-admin-card"><h3>业务路由</h3>${routes}</section><section class="ai-admin-card"><h3>项目 / 员工 / 任务预算</h3>${budget}</section><section class="ai-admin-card"><h3>最近调用、费用和健康</h3>${calls}</section></div>`);
+    shell('AI 能力管理',objectTabs('ai-admin',[
+      ['routes','平台与业务路由',`<section class="ai-admin-card"><h3>平台状态</h3>${providers}</section><section class="ai-admin-card"><h3>业务路由</h3>${routes}</section>`],
+      ['models','模型状态',`<section class="ai-admin-card"><h3>模型与真实状态</h3>${models}</section>`],
+      ['budgets','预算设置',`<section class="ai-admin-card"><h3>项目 / 员工 / 任务预算</h3>${budget}</section>`],
+      ['calls','调用记录',`<section class="ai-admin-card"><h3>最近调用、费用和健康</h3>${calls}</section>`]
+    ],'routes'));
   }
 
   async function route(view){
@@ -246,7 +253,7 @@
   }
   async function act(action,id){
     const item=A.current?.id===id?A.current:A.artifacts.find(x=>x.id===id)||await showArtifact(id);
-    if(action==='refresh')return showArtifact(id, $ai('#ai-current')?'#ai-current':'#ai-list');
+    if(action==='refresh'){if(A.view==='history'){A.artifactsAt=0;return renderHistoryStatus(state.objectTabs.get('ai-history')||'all')}return showArtifact(id)}
     if(action==='view')return go('ai:artifact:'+id);
     if(action==='copy'){await navigator.clipboard.writeText(outputText(item.output??item.result));return notice('已复制结果');}
     if(action==='download'){
@@ -272,7 +279,7 @@
       const result=await api(`${ROOT}/artifacts/${encodeURIComponent(id)}/continue`,{instruction});
       const next=result.artifact||result;
       notice('已提交继续深化');
-      return showArtifact(next.id, $ai('#ai-current')?'#ai-current':'#ai-list');
+      return showArtifact(next.id, $ai('#ai-current')?'#ai-current':'#ai-list-'+(state.objectTabs.get('ai-history')||'all'));
     }
     if(action==='again'){
       const detail=await api(`${ROOT}/artifacts/${encodeURIComponent(id)}`);
@@ -291,6 +298,8 @@
   }
 
   document.addEventListener('click',async e=>{
+    const historyTab=e.target.closest('[data-object-tabs="ai-history"] [data-object-tab]');
+    if(historyTab){await renderHistoryStatus(historyTab.dataset.objectTab);return}
     const jump=e.target.closest('[data-ai-go]');
     if(jump){e.preventDefault();return go('ai:'+jump.dataset.aiGo);}
     const b=e.target.closest('[data-ai-action]'); if(!b)return;
@@ -302,8 +311,7 @@
       if(b.dataset.aiAction==='filter'){
         A.historyFilters={type:$ai('#ai-history-type')?.value||'',project:$ai('#ai-history-project')?.value||'',
           from:$ai('#ai-history-from')?.value||'',to:$ai('#ai-history-to')?.value||''};
-        return listArtifacts({capability:A.historyFilters.type,project_id:A.historyFilters.project,
-          date_from:A.historyFilters.from,date_to:A.historyFilters.to});
+        return renderHistoryStatus(state.objectTabs.get('ai-history')||'all');
       }
       return await act(b.dataset.aiAction,b.dataset.id);
     }catch(err){notice(err.message,true)}finally{b.disabled=false}

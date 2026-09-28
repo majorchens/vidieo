@@ -127,15 +127,20 @@ class V03HttpSmokeTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("YOODUN WORK OS · V0.3", page)
         self.assertEqual(headers["Cache-Control"], "no-store")
-        self.assertIn("martial.js?v=20260928-video-optimization-1", page)
-        status, headers, script = self.request("GET", "/martial.js?v=20260928-video-optimization-1")
+        self.assertIn("martial.js?v=20260928-admin-navigation-1", page)
+        self.assertIn("app.js?v=20260928-admin-navigation-1", page)
+        status, headers, script = self.request("GET", "/martial.js?v=20260928-admin-navigation-1")
         self.assertEqual(status, 200)
         self.assertEqual(headers["Cache-Control"], "no-store")
         self.assertIn("moveAssetSummary", script)
         self.assertIn("新建视频优化任务", script)
-        status, headers, _ = self.request("GET", "/martial.css?v=20260928-video-optimization-1")
+        status, headers, _ = self.request("GET", "/martial.css?v=20260928-admin-navigation-1")
         self.assertEqual(status, 200)
         self.assertEqual(headers["Cache-Control"], "no-store")
+        for name in ("app.js", "ai_studio.js", "styles.css", "ai_studio.css"):
+            status, headers, _ = self.request("GET", f"/{name}?v=20260928-admin-navigation-1")
+            self.assertEqual(status, 200)
+            self.assertEqual(headers["Cache-Control"], "no-store")
 
     def test_lesson_dashboard_and_shot_route(self):
         status, _, dashboard = self.request("GET", "/api/martial/lesson-dashboard/flowing_cloud", auth=self.employee)
